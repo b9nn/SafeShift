@@ -17,6 +17,11 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
+// Handle favicon request (prevent 404 errors)
+app.get('/favicon.ico', (req, res) => {
+  res.status(204).end(); // No content
+});
+
 // Initialize Solana connection
 const network = walletConfig.network || 'devnet';
 const connection = new Connection(clusterApiUrl(network), 'confirmed');

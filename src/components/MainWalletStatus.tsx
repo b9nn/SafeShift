@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSolana } from '../context/SolanaContext';
-import walletConfig from '../../config/wallet';
+import walletConfig from '../../config/wallet.ts';
 import './MainWalletStatus.css';
 
 const MainWalletStatus = () => {

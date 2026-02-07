@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Connection, Keypair, clusterApiUrl } from '@solana/web3.js';
 import { SolanaRewardService } from '../services/solanaRewardService';
-import walletConfig from '../../config/wallet';
+import walletConfig from '../../config/wallet.ts';
 
 interface SolanaContextType {
   connection: Connection | null;
