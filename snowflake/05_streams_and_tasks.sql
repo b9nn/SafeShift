@@ -253,7 +253,8 @@ AS
         OBJECT_CONSTRUCT(
             'pipeline', 'SENSOR_DATA_PIPELINE',
             'completed_at', CURRENT_TIMESTAMP(),
-            'records_processed', (SELECT COUNT(*) FROM STREAM_SENSOR_RAW)
+            'records_processed', (SELECT COUNT(*) FROM STAGING.SENSOR_READINGS_CLEAN
+                                  WHERE cleaned_at >= DATEADD('MINUTE', -10, CURRENT_TIMESTAMP()))
         ),
         'RAW';
 

@@ -343,8 +343,8 @@ BEGIN
 
     -- Insert into blockchain table
     INSERT INTO BLOCKCHAIN.COMPLIANCE_REPORTS_ONCHAIN
-        (factory_id, report_date, report_hash, payout_status, report_summary)
-    VALUES (:p_factory_id, :p_report_date, :v_hash, 'PENDING', :v_report);
+        (factory_id, report_date, report_hash, report_summary)
+    VALUES (:p_factory_id, :p_report_date, :v_hash, :v_report);
 
     -- Audit log
     INSERT INTO GOVERNANCE.AUDIT_LOG
@@ -430,6 +430,12 @@ $$;
 
 -- ===================== SNOWFLAKE ALERTS =====================
 -- Proactive monitoring with automated notifications
+
+-- Notification integration (email addresses must be verified in account settings)
+CREATE OR REPLACE NOTIFICATION INTEGRATION safeshift_alerts
+    TYPE = EMAIL
+    ENABLED = TRUE
+    ALLOWED_RECIPIENTS = ('alerts@safeshift.io','ops@safeshift.io','emergency@safeshift.io','compliance@safeshift.io');
 
 -- ---- Alert: Critical risk level detected ----
 CREATE OR REPLACE ALERT ALERT_CRITICAL_RISK

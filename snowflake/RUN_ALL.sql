@@ -657,9 +657,9 @@ CREATE OR REPLACE ROW ACCESS POLICY FACTORY_REGION_ACCESS AS
                 WHERE f.factory_id = row_factory_id
                     AND a.username = CURRENT_USER()
             )
-        ELSE TRUE
+        ELSE FALSE
     END
-    COMMENT = 'Row-level security: analysts see only their assigned regions';
+    COMMENT = 'Row-level security: analysts see only their assigned regions — deny by default';
 
 ALTER TABLE ANALYTICS.FACT_HOURLY_COMPLIANCE
     ADD ROW ACCESS POLICY FACTORY_REGION_ACCESS ON (factory_id);
@@ -901,6 +901,68 @@ BEGIN
 END;
 $$;
 
+-- ---- Procedure: Time Travel — Compare conditions between two points in time ----
+CREATE OR REPLACE PROCEDURE SP_TIME_TRAVEL_COMPARISON(
+    p_factory_id VARCHAR,
+    p_minutes_ago INTEGER
+)
+RETURNS TABLE (
+    metric VARCHAR,
+    current_value FLOAT,
+    past_value FLOAT,
+    change_pct FLOAT
+)
+LANGUAGE SQL
+COMMENT = 'Uses Snowflake Time Travel to compare current vs historical sensor readings'
+AS
+$$
+DECLARE
+    res RESULTSET;
+BEGIN
+    res := (
+        WITH current_data AS (
+            SELECT
+                AVG(co2_ppm) AS avg_co2, AVG(temperature_c) AS avg_temp,
+                AVG(humidity_pct) AS avg_humidity, AVG(pm25_mg_m3) AS avg_pm25,
+                AVG(noise_dba) AS avg_noise
+            FROM STAGING.SENSOR_READINGS_CLEAN
+            WHERE factory_id = :p_factory_id
+                AND reading_timestamp >= DATEADD('HOUR', -1, CURRENT_TIMESTAMP())
+        ),
+        past_data AS (
+            SELECT
+                AVG(co2_ppm) AS avg_co2, AVG(temperature_c) AS avg_temp,
+                AVG(humidity_pct) AS avg_humidity, AVG(pm25_mg_m3) AS avg_pm25,
+                AVG(noise_dba) AS avg_noise
+            FROM STAGING.SENSOR_READINGS_CLEAN
+                AT(OFFSET => -60 * :p_minutes_ago)
+            WHERE factory_id = :p_factory_id
+                AND reading_timestamp >= DATEADD('HOUR', -1, CURRENT_TIMESTAMP())
+        )
+        SELECT 'CO2 (ppm)' AS metric, c.avg_co2, p.avg_co2,
+               (c.avg_co2 - p.avg_co2) / NULLIF(p.avg_co2, 0) * 100
+        FROM current_data c, past_data p
+        UNION ALL
+        SELECT 'Temperature (C)', c.avg_temp, p.avg_temp,
+               (c.avg_temp - p.avg_temp) / NULLIF(p.avg_temp, 0) * 100
+        FROM current_data c, past_data p
+        UNION ALL
+        SELECT 'Humidity (%)', c.avg_humidity, p.avg_humidity,
+               (c.avg_humidity - p.avg_humidity) / NULLIF(p.avg_humidity, 0) * 100
+        FROM current_data c, past_data p
+        UNION ALL
+        SELECT 'PM2.5 (mg/m3)', c.avg_pm25, p.avg_pm25,
+               (c.avg_pm25 - p.avg_pm25) / NULLIF(p.avg_pm25, 0) * 100
+        FROM current_data c, past_data p
+        UNION ALL
+        SELECT 'Noise (dBA)', c.avg_noise, p.avg_noise,
+               (c.avg_noise - p.avg_noise) / NULLIF(p.avg_noise, 0) * 100
+        FROM current_data c, past_data p
+    );
+    RETURN TABLE(res);
+END;
+$$;
+
 -- ============================================================================
 -- SECTION 14: STREAMS (Change Data Capture)
 -- ============================================================================
@@ -967,6 +1029,7 @@ CREATE OR REPLACE TASK TASK_COMPUTE_HOURLY_COMPLIANCE
     WAREHOUSE = ANALYTICS_WH
     COMMENT = 'Child task: hourly compliance scores'
     AFTER TASK_CLEAN_SENSOR_DATA
+    WHEN SYSTEM$STREAM_HAS_DATA('STREAM_SENSOR_CLEAN')
 AS
     INSERT INTO ANALYTICS.FACT_HOURLY_COMPLIANCE (
         factory_id, sensor_node_id, hour_timestamp,
@@ -1003,10 +1066,58 @@ AS
 
 CREATE OR REPLACE TASK TASK_UPDATE_FEATURE_STORE
     WAREHOUSE = ML_WH
-    COMMENT = 'Child task: updates ML feature store'
+    COMMENT = 'Child task: updates ML feature store with rolling window features'
     AFTER TASK_COMPUTE_HOURLY_COMPLIANCE
 AS
-    SELECT 1; -- Placeholder: full feature store logic in 05_streams_and_tasks.sql
+    INSERT INTO ML.FEATURE_STORE (
+        feature_timestamp, factory_id,
+        co2_1h_avg, co2_1h_std, co2_24h_avg, co2_24h_max,
+        temp_1h_avg, temp_1h_std, temp_24h_avg,
+        humidity_1h_avg, pm25_1h_avg, pm25_24h_max,
+        noise_1h_avg, noise_1h_max,
+        heat_index, air_quality_index, breach_rate_24h,
+        hour_of_day, day_of_week, is_weekend, minutes_since_shift_start
+    )
+    SELECT
+        DATE_TRUNC('HOUR', reading_timestamp) AS feature_timestamp,
+        factory_id,
+        AVG(co2_ppm) OVER w_1h,
+        STDDEV(co2_ppm) OVER w_1h,
+        AVG(co2_ppm) OVER w_24h,
+        MAX(co2_ppm) OVER w_24h,
+        AVG(temperature_c) OVER w_1h,
+        STDDEV(temperature_c) OVER w_1h,
+        AVG(temperature_c) OVER w_24h,
+        AVG(humidity_pct) OVER w_1h,
+        AVG(pm25_mg_m3) OVER w_1h,
+        MAX(pm25_mg_m3) OVER w_24h,
+        AVG(noise_dba) OVER w_1h,
+        MAX(noise_dba) OVER w_1h,
+        -42.379 + 2.04901523 * ((temperature_c * 9/5) + 32)
+            + 10.14333127 * humidity_pct
+            - 0.22475541 * ((temperature_c * 9/5) + 32) * humidity_pct,
+        (COALESCE(co2_ppm / 1000, 0) + COALESCE(pm25_mg_m3 / 5.0, 0)
+            + COALESCE(voc_mg_m3 / 0.5, 0)) / 3.0 * 100,
+        SUM(IFF(co2_ppm > 1000 OR pm25_mg_m3 > 5.0 OR noise_dba > 85, 1, 0)) OVER w_24h
+            / NULLIF(COUNT(*) OVER w_24h, 0),
+        HOUR(reading_timestamp),
+        DAYOFWEEK(reading_timestamp),
+        DAYOFWEEK(reading_timestamp) IN (0, 6),
+        DATEDIFF('MINUTE',
+            DATE_TRUNC('DAY', reading_timestamp) + INTERVAL '6 HOURS',
+            reading_timestamp)
+    FROM STAGING.SENSOR_READINGS_CLEAN
+    WHERE is_valid = TRUE
+        AND reading_timestamp >= DATEADD('DAY', -2, CURRENT_TIMESTAMP())
+    WINDOW
+        w_1h AS (PARTITION BY factory_id ORDER BY reading_timestamp
+                 RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
+        w_24h AS (PARTITION BY factory_id ORDER BY reading_timestamp
+                  RANGE BETWEEN INTERVAL '24 HOURS' PRECEDING AND CURRENT ROW)
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY factory_id, DATE_TRUNC('HOUR', reading_timestamp)
+        ORDER BY reading_timestamp DESC
+    ) = 1;
 
 CREATE OR REPLACE TASK TASK_LOG_PIPELINE_RUN
     WAREHOUSE = INGEST_WH
@@ -1015,7 +1126,9 @@ CREATE OR REPLACE TASK TASK_LOG_PIPELINE_RUN
 AS
     INSERT INTO GOVERNANCE.AUDIT_LOG (event_type, actor, event_details, source_schema)
     SELECT 'PIPELINE_COMPLETE','SYSTEM',
-        OBJECT_CONSTRUCT('pipeline','SENSOR_DATA_PIPELINE','completed_at',CURRENT_TIMESTAMP()),'RAW';
+        OBJECT_CONSTRUCT('pipeline','SENSOR_DATA_PIPELINE','completed_at',CURRENT_TIMESTAMP(),
+            'records_processed',(SELECT COUNT(*) FROM STAGING.SENSOR_READINGS_CLEAN
+                                 WHERE cleaned_at >= DATEADD('MINUTE', -10, CURRENT_TIMESTAMP()))),'RAW';
 
 CREATE OR REPLACE TASK TASK_DAILY_COMPLIANCE_ROLLUP
     WAREHOUSE = ANALYTICS_WH
@@ -1143,10 +1256,23 @@ CREATE OR REPLACE DYNAMIC TABLE DT_INCIDENT_ANALYTICS
     WAREHOUSE = ANALYTICS_WH
     COMMENT = 'Dynamic table: incident pattern analysis'
 AS
+    WITH incident_employee_counts AS (
+        SELECT country, industry_sector, accident_level, critical_risk,
+            COALESCE(employee_type, 'Unknown') AS employee_type,
+            local_site, potential_level,
+            COUNT(*) AS emp_type_count
+        FROM RAW.SAFETY_INCIDENTS_RAW
+        GROUP BY country, industry_sector, accident_level, critical_risk, employee_type, local_site, potential_level
+    )
     SELECT country, industry_sector, accident_level, critical_risk,
-        COUNT(*) AS incident_count, COUNT(DISTINCT local_site) AS affected_sites,
-        ARRAY_AGG(DISTINCT potential_level) AS potential_levels
-    FROM RAW.SAFETY_INCIDENTS_RAW
+        SUM(emp_type_count) AS incident_count,
+        COUNT(DISTINCT local_site) AS affected_sites,
+        ARRAY_AGG(DISTINCT potential_level) AS potential_levels,
+        OBJECT_CONSTRUCT(
+            'total', SUM(emp_type_count),
+            'by_employee_type', OBJECT_AGG(employee_type, emp_type_count::VARIANT)
+        ) AS breakdown
+    FROM incident_employee_counts
     GROUP BY country, industry_sector, accident_level, critical_risk;
 
 -- ============================================================================
@@ -1154,6 +1280,20 @@ AS
 -- ============================================================================
 
 USE SCHEMA ANALYTICS;
+
+CREATE OR REPLACE MATERIALIZED VIEW MV_WEEKLY_COMPLIANCE_TREND AS
+    SELECT
+        factory_id,
+        DATE_TRUNC('WEEK', compliance_date) AS week_start,
+        AVG(avg_compliance_score) AS weekly_avg_score,
+        MIN(min_compliance_score) AS weekly_min_score,
+        SUM(total_breaches) AS weekly_total_breaches,
+        MODE(risk_level) AS predominant_risk_level,
+        AVG(shift_hours_detected) AS avg_daily_shift_hours,
+        SUM(IFF(shift_compliance, 1, 0)) AS days_shift_compliant,
+        COUNT(*) AS days_monitored
+    FROM FACT_DAILY_COMPLIANCE
+    GROUP BY factory_id, DATE_TRUNC('WEEK', compliance_date);
 
 CREATE OR REPLACE SECURE VIEW SV_PUBLIC_COMPLIANCE_SUMMARY AS
     SELECT f.country, f.region, f.industry_sector, dc.compliance_date,
@@ -1226,8 +1366,103 @@ CREATE OR REPLACE VIEW V_INCIDENTS_ENGLISH AS
 CREATE OR REPLACE VIEW V_INCIDENT_ROOT_CAUSES AS
     SELECT incident_date, country, description,
         SNOWFLAKE.CORTEX.EXTRACT_ANSWER(description,'What was the root cause?') AS root_cause,
-        SNOWFLAKE.CORTEX.EXTRACT_ANSWER(description,'What body part was injured?') AS injury
+        SNOWFLAKE.CORTEX.EXTRACT_ANSWER(description,'What body part was injured?') AS injury,
+        SNOWFLAKE.CORTEX.EXTRACT_ANSWER(description,'What safety equipment was involved or missing?') AS safety_equipment
     FROM RAW.SAFETY_INCIDENTS_RAW WHERE description IS NOT NULL AND LENGTH(description)>100;
+
+CREATE OR REPLACE VIEW V_INCIDENT_CLASSIFICATION AS
+    SELECT incident_date, country, description,
+        SNOWFLAKE.CORTEX.CLASSIFY_TEXT(description,
+            ['Chemical Hazard', 'Mechanical Hazard', 'Electrical Hazard',
+             'Ergonomic Hazard', 'Environmental Hazard', 'Procedural Failure']
+        ) AS risk_classification
+    FROM RAW.SAFETY_INCIDENTS_RAW WHERE description IS NOT NULL;
+
+-- ---- Cortex ML Models (require training data — run after data load) ----
+-- These will fail if tables are empty; run 08 data load first, then execute these.
+
+CREATE OR REPLACE SNOWFLAKE.ML.ANOMALY_DETECTION SENSOR_ANOMALY_MODEL(
+    INPUT_DATA => SYSTEM$REFERENCE('VIEW', 'V_ANOMALY_TRAINING_DATA'),
+    SERIES_COLNAME => 'FACTORY_ID',
+    TIMESTAMP_COLNAME => 'READING_TIMESTAMP',
+    TARGET_COLNAME => 'CO2_PPM',
+    LABEL_COLNAME => ''
+)
+COMMENT = 'Anomaly detection model for CO2 levels per factory';
+
+CREATE OR REPLACE SNOWFLAKE.ML.ANOMALY_DETECTION TEMP_ANOMALY_MODEL(
+    INPUT_DATA => SYSTEM$REFERENCE('VIEW', 'V_ANOMALY_TRAINING_DATA'),
+    SERIES_COLNAME => 'FACTORY_ID',
+    TIMESTAMP_COLNAME => 'READING_TIMESTAMP',
+    TARGET_COLNAME => 'TEMPERATURE_C',
+    LABEL_COLNAME => ''
+)
+COMMENT = 'Anomaly detection model for temperature per factory';
+
+CREATE OR REPLACE TABLE ANOMALY_RESULTS AS
+    SELECT * FROM TABLE(
+        SENSOR_ANOMALY_MODEL!DETECT_ANOMALIES(
+            INPUT_DATA => SYSTEM$REFERENCE('VIEW', 'V_ANOMALY_TRAINING_DATA'),
+            SERIES_COLNAME => 'FACTORY_ID',
+            TIMESTAMP_COLNAME => 'READING_TIMESTAMP',
+            TARGET_COLNAME => 'CO2_PPM'
+        )
+    );
+
+CREATE OR REPLACE SNOWFLAKE.ML.FORECAST SENSOR_FORECAST_MODEL(
+    INPUT_DATA => SYSTEM$REFERENCE('VIEW', 'V_ANOMALY_TRAINING_DATA'),
+    SERIES_COLNAME => 'FACTORY_ID',
+    TIMESTAMP_COLNAME => 'READING_TIMESTAMP',
+    TARGET_COLNAME => 'CO2_PPM'
+)
+COMMENT = 'Forecasting model for CO2 levels — predicts next 24-48 hours';
+
+CREATE OR REPLACE TABLE CO2_FORECAST_RESULTS AS
+    SELECT * FROM TABLE(
+        SENSOR_FORECAST_MODEL!FORECAST(
+            FORECASTING_PERIODS => 24,
+            SERIES_COLNAME => 'FACTORY_ID'
+        )
+    );
+
+CREATE OR REPLACE SNOWFLAKE.ML.FORECAST TEMP_FORECAST_MODEL(
+    INPUT_DATA => SYSTEM$REFERENCE('VIEW', 'V_ANOMALY_TRAINING_DATA'),
+    SERIES_COLNAME => 'FACTORY_ID',
+    TIMESTAMP_COLNAME => 'READING_TIMESTAMP',
+    TARGET_COLNAME => 'TEMPERATURE_C'
+)
+COMMENT = 'Forecasting model for temperature — early warning system';
+
+CREATE OR REPLACE SNOWFLAKE.ML.CONTRIBUTION_EXPLORER COMPLIANCE_DRIVERS(
+    INPUT_DATA => SYSTEM$REFERENCE('VIEW', 'V_CONTRIBUTION_DATA'),
+    LABEL_COLNAME => 'METRIC',
+    TIMESTAMP_COLNAME => 'COMPLIANCE_DATE',
+    SERIES_COLNAME => 'FACTORY_ID'
+)
+COMMENT = 'Identifies which dimensions drive compliance score changes';
+
+CREATE OR REPLACE SNOWFLAKE.ML.TOP_INSIGHTS COMPLIANCE_INSIGHTS(
+    INPUT_DATA => SYSTEM$REFERENCE('VIEW', 'V_CONTRIBUTION_DATA'),
+    LABEL_COLNAME => 'METRIC',
+    METRIC => 'AVG'
+)
+COMMENT = 'Discovers top insights in compliance score patterns';
+
+-- AI-powered anomaly explanations (depends on ANOMALY_RESULTS table)
+CREATE OR REPLACE VIEW V_ANOMALY_EXPLANATIONS AS
+    SELECT ar.*,
+        SNOWFLAKE.CORTEX.COMPLETE('mistral-large2',
+            CONCAT('You are a factory safety AI assistant for SafeShift. ',
+                'An anomaly was detected in factory sensor data. ',
+                'Explain this anomaly in simple terms for a factory manager. ',
+                'Include: what happened, potential causes, and recommended immediate actions. ',
+                'Factory: ', ar.factory_id,
+                ', Metric: CO2 (ppm), Is Anomaly: ', ar.is_anomaly::VARCHAR,
+                ', Percentile: ', ar.percentile::VARCHAR,
+                ', Distance from expected: ', ar.distance::VARCHAR)
+        ) AS ai_explanation
+    FROM ANOMALY_RESULTS ar
+    WHERE ar.is_anomaly = TRUE;
 
 -- ML Feature Store table
 CREATE OR REPLACE TABLE FEATURE_STORE (
@@ -1270,6 +1505,7 @@ GRANT USAGE ON DATABASE SAFE_SHIFT TO ROLE SAFESHIFT_ML_ENGINEER;
 GRANT USAGE ON SCHEMA SAFE_SHIFT.ANALYTICS TO ROLE SAFESHIFT_ANALYST;
 GRANT SELECT ON ALL TABLES IN SCHEMA SAFE_SHIFT.ANALYTICS TO ROLE SAFESHIFT_ANALYST;
 GRANT SELECT ON ALL VIEWS IN SCHEMA SAFE_SHIFT.ANALYTICS TO ROLE SAFESHIFT_ANALYST;
+GRANT SELECT ON FUTURE TABLES IN SCHEMA SAFE_SHIFT.ANALYTICS TO ROLE SAFESHIFT_ANALYST;
 GRANT USAGE ON SCHEMA SAFE_SHIFT.STAGING TO ROLE SAFESHIFT_ANALYST;
 GRANT SELECT ON ALL TABLES IN SCHEMA SAFE_SHIFT.STAGING TO ROLE SAFESHIFT_ANALYST;
 GRANT USAGE ON SCHEMA SAFE_SHIFT.ANALYTICS TO ROLE SAFESHIFT_AUDITOR;
@@ -1280,6 +1516,8 @@ GRANT USAGE ON SCHEMA SAFE_SHIFT.GOVERNANCE TO ROLE SAFESHIFT_AUDITOR;
 GRANT SELECT ON ALL TABLES IN SCHEMA SAFE_SHIFT.GOVERNANCE TO ROLE SAFESHIFT_AUDITOR;
 GRANT USAGE ON SCHEMA SAFE_SHIFT.ML TO ROLE SAFESHIFT_ML_ENGINEER;
 GRANT ALL ON ALL TABLES IN SCHEMA SAFE_SHIFT.ML TO ROLE SAFESHIFT_ML_ENGINEER;
+GRANT USAGE ON SCHEMA SAFE_SHIFT.STAGING TO ROLE SAFESHIFT_ML_ENGINEER;
+GRANT SELECT ON ALL TABLES IN SCHEMA SAFE_SHIFT.STAGING TO ROLE SAFESHIFT_ML_ENGINEER;
 GRANT USAGE ON WAREHOUSE ANALYTICS_WH TO ROLE SAFESHIFT_ANALYST;
 GRANT USAGE ON WAREHOUSE ANALYTICS_WH TO ROLE SAFESHIFT_AUDITOR;
 GRANT USAGE ON WAREHOUSE ML_WH TO ROLE SAFESHIFT_ML_ENGINEER;

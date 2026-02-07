@@ -158,22 +158,35 @@ CREATE OR REPLACE DYNAMIC TABLE DT_INCIDENT_ANALYTICS
     WAREHOUSE = ANALYTICS_WH
     COMMENT = 'Dynamic table: incident pattern analysis'
 AS
+    WITH incident_employee_counts AS (
+        SELECT
+            country,
+            industry_sector,
+            accident_level,
+            critical_risk,
+            COALESCE(employee_type, 'Unknown') AS employee_type,
+            local_site,
+            potential_level,
+            COUNT(*) AS emp_type_count
+        FROM RAW.SAFETY_INCIDENTS_RAW
+        GROUP BY country, industry_sector, accident_level, critical_risk, employee_type, local_site, potential_level
+    )
     SELECT
         country,
         industry_sector,
         accident_level,
         critical_risk,
-        COUNT(*) AS incident_count,
+        SUM(emp_type_count) AS incident_count,
         COUNT(DISTINCT local_site) AS affected_sites,
         ARRAY_AGG(DISTINCT potential_level) AS potential_levels,
         OBJECT_CONSTRUCT(
-            'total', COUNT(*),
+            'total', SUM(emp_type_count),
             'by_employee_type', OBJECT_AGG(
-                COALESCE(employee_type, 'Unknown'),
-                COUNT(*)::VARIANT
+                employee_type,
+                emp_type_count::VARIANT
             )
         ) AS breakdown
-    FROM RAW.SAFETY_INCIDENTS_RAW
+    FROM incident_employee_counts
     GROUP BY country, industry_sector, accident_level, critical_risk;
 
 -- ===================== MATERIALIZED VIEWS =====================
