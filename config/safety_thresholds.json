@@ -1,0 +1,189 @@
+{
+  "_meta": {
+    "description": "Safety thresholds for SafeShift sensor monitoring, based on international occupational health standards.",
+    "last_updated": "2025-02-06",
+    "notes": "All values represent 8-hour TWA limits unless otherwise noted. Thresholds are starting points for anomaly detection — not legal compliance tools."
+  },
+
+  "temperature": {
+    "unit": "°F",
+    "recommended_min": 68,
+    "recommended_max": 76,
+    "heat_action_trigger": 80,
+    "sources": [
+      {
+        "name": "OSHA Technical Manual — Indoor Air Quality",
+        "url": "https://www.osha.gov/laws-regs/standardinterpretations/2003-02-24",
+        "detail": "OSHA recommends 68–76°F and 20–60% relative humidity for acceptable indoor air quality."
+      },
+      {
+        "name": "ASHRAE Standard 55 (referenced by OSHA)",
+        "detail": "Thermal comfort standard for human occupancy, basis for OSHA's recommendation."
+      }
+    ]
+  },
+
+  "humidity": {
+    "unit": "%RH",
+    "recommended_min": 20,
+    "recommended_max": 60,
+    "sources": [
+      {
+        "name": "OSHA Technical Manual — Indoor Air Quality",
+        "url": "https://www.osha.gov/laws-regs/standardinterpretations/2003-02-24",
+        "detail": "OSHA recommends 20–60% relative humidity."
+      }
+    ]
+  },
+
+  "air_quality": {
+    "co2": {
+      "unit": "ppm",
+      "pel_8hr_twa": 5000,
+      "recommended_max": 1000,
+      "stel_15min": 30000,
+      "idlh": 40000,
+      "sources": [
+        {
+          "name": "OSHA PEL Table Z-1 — Carbon Dioxide",
+          "url": "https://www.osha.gov/annotated-pels/table-z-1",
+          "detail": "PEL is 5,000 ppm (8-hr TWA). NIOSH REL is also 5,000 ppm with a 30,000 ppm STEL."
+        },
+        {
+          "name": "OSHA CO2 Monitoring Guidelines",
+          "url": "https://aerospheremonitoring.com/blogs/news/what-osha-says-about-co2-monitoring-workplace-safety-guidelines",
+          "detail": "Levels above 1,000 ppm indicate inadequate ventilation in occupied spaces."
+        }
+      ]
+    },
+    "pm2_5": {
+      "unit": "mg/m³",
+      "respirable_fraction_pel": 5.0,
+      "total_dust_pel": 15.0,
+      "notes": "OSHA has no PM2.5-specific PEL. The respirable fraction PEL (5 mg/m³) covers particles ≤10μm (PM10). PM2.5 falls within this but is not separately regulated.",
+      "sources": [
+        {
+          "name": "OSHA — Particulates Not Otherwise Regulated (PNOR)",
+          "url": "https://www.osha.gov/chemicaldata/801",
+          "detail": "Total dust PEL: 15 mg/m³. Respirable fraction PEL: 5 mg/m³."
+        },
+        {
+          "name": "CDC/NIOSH — 1988 OSHA PEL Project: Particulates",
+          "url": "https://www.cdc.gov/niosh/pel88/dusts.html"
+        }
+      ]
+    },
+    "voc": {
+      "unit": "varies per compound",
+      "notes": "No single VOC limit exists. OSHA sets PELs per compound in Table Z-1 (e.g., benzene: 1 ppm, toluene: 200 ppm). For general indoor air quality, total VOC (TVOC) below 0.5 mg/m³ is considered good.",
+      "general_tvoc_good_max_mg_m3": 0.5,
+      "sources": [
+        {
+          "name": "OSHA PEL Table Z-1 — Air Contaminants",
+          "url": "https://www.osha.gov/annotated-pels/table-z-1",
+          "detail": "Individual PELs for each VOC compound."
+        },
+        {
+          "name": "OSHA — Indoor Air Quality in Commercial Buildings (OSHA 3430)",
+          "url": "https://www.osha.gov/sites/default/files/publications/3430indoor-air-quality-sm.pdf"
+        }
+      ]
+    }
+  },
+
+  "noise": {
+    "unit": "dBA",
+    "action_level_8hr_twa": 85,
+    "pel_8hr_twa": 90,
+    "exchange_rate_dB": 5,
+    "max_exposure_table": {
+      "90_dBA": "8 hours",
+      "95_dBA": "4 hours",
+      "100_dBA": "2 hours",
+      "105_dBA": "1 hour",
+      "110_dBA": "30 minutes",
+      "115_dBA": "15 minutes"
+    },
+    "sources": [
+      {
+        "name": "OSHA 29 CFR 1910.95 — Occupational Noise Exposure",
+        "url": "https://www.osha.gov/laws-regs/regulations/standardnumber/1910/1910.95",
+        "detail": "PEL: 90 dBA (8-hr TWA), 5 dB exchange rate. Action level: 85 dBA triggers hearing conservation program."
+      },
+      {
+        "name": "OSHA Noise Standards Overview",
+        "url": "https://www.osha.gov/noise/standards"
+      }
+    ]
+  },
+
+  "lighting": {
+    "unit": "lux",
+    "factory_floor_min": 300,
+    "machine_shop_min": 110,
+    "warehouse_min": 110,
+    "office_first_aid_min": 320,
+    "general_construction_min": 32,
+    "sources": [
+      {
+        "name": "OSHA 29 CFR 1926.56 — Illumination (Construction)",
+        "url": "https://www.osha.gov/laws-regs/regulations/standardnumber/1926/1926.56",
+        "detail": "General construction: 3 fc (~32 lux). Plants/shops: 10 fc (~110 lux). Offices: 30 fc (~320 lux)."
+      },
+      {
+        "name": "OSHA 29 CFR 1915.82 — Lighting (Shipyard/Maritime)",
+        "url": "https://www.osha.gov/laws-regs/regulations/standardnumber/1915/1915.82"
+      }
+    ]
+  },
+
+  "vibration": {
+    "hand_arm": {
+      "unit": "m/s²",
+      "action_value_8hr": 2.5,
+      "exposure_limit_8hr": 5.0
+    },
+    "whole_body": {
+      "unit": "m/s²",
+      "action_value_8hr": 0.5,
+      "exposure_limit_8hr": 1.15
+    },
+    "sources": [
+      {
+        "name": "EU Directive 2002/44/EC — Physical Agents (Vibration)",
+        "url": "https://osha.europa.eu/en/legislation/directives/19",
+        "detail": "HAV action: 2.5 m/s², limit: 5.0 m/s². WBV action: 0.5 m/s², limit: 1.15 m/s². All 8-hr TWA."
+      },
+      {
+        "name": "ILO — Vibration (Labour Inspection Guide)",
+        "url": "https://www.ilo.org/topics/labour-administration-and-inspection/resources-library/occupational-safety-and-health-guide-labour-inspectors-and-other/vibration"
+      }
+    ]
+  },
+
+  "shift_length": {
+    "unit": "hours",
+    "standard_daily_max": 8,
+    "extended_daily_max": 10,
+    "weekly_max": 48,
+    "shift_work_weekly_max": 56,
+    "minimum_daily_rest": 11,
+    "minimum_weekly_rest": 24,
+    "sources": [
+      {
+        "name": "ILO Convention No. 1 — Hours of Work (Industry), 1919",
+        "url": "https://normlex.ilo.org/dyn/nrmlx_en/f?p=NORMLEXPUB:12100:0::NO::P12100_ILO_CODE:C001",
+        "detail": "8 hours/day, 48 hours/week. Shift work may average over 3 weeks with 56-hr weekly max."
+      },
+      {
+        "name": "ILO Q&As on Business and Working Time",
+        "url": "https://www.ilo.org/resource/qas-business-and-working-time-0",
+        "detail": "Convention No. 30 allows up to 10 hours/day if weekly total ≤48 hours."
+      },
+      {
+        "name": "ETI Base Code Clause 6 — Working Hours",
+        "url": "https://www.ethicaltrade.org/eti-base-code/6-working-hours-are-not-excessive"
+      }
+    ]
+  }
+}
