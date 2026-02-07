@@ -62,38 +62,38 @@ async function queryMLModel(sensorData) {
 }
 ```
 
-### Real ML Model Integration (Future)
+### Real ML Model Integration (READY)
 
-To integrate your teammate's actual ML model, replace the `queryMLModel()` function:
+The ML API is built and ready at `src/api.py`. To connect:
 
+**1. Start the ML API (separate terminal):**
+```bash
+pip install -r requirements.txt
+python -m src.api
+# Runs on http://localhost:8000
+```
+
+**2. Replace `queryMLModel()` in `server/index.js`:**
 ```javascript
 async function queryMLModel(sensorData) {
-  // Replace with actual ML API call
-  const response = await fetch('http://ml-api:8000/predict', {
+  const response = await fetch('http://localhost:8000/predict', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(sensorData),
   });
-  
+
   if (!response.ok) {
     throw new Error(`ML API error: ${response.statusText}`);
   }
-  
-  const result = await response.json();
-  
-  // Expected response format:
-  // {
-  //   riskScore: 0.2345,  // Float 0.0-1.0 (lower = safer)
-  //   confidence: 0.9297, // Float 0.0-1.0 (model confidence)
-  // }
-  
-  return {
-    riskScore: result.riskScore.toFixed(4),
-    confidence: result.confidence.toFixed(4),
-    timestamp: Date.now(),
-  };
+
+  return await response.json();
+  // Returns: { riskScore: "0.2345", confidence: "0.9297", timestamp: 1234567890 }
 }
 ```
+
+**Health check:** `GET http://localhost:8000/health`
+
+The ML API accepts the same sensor fields the server already sends (temperature, humidity, airQuality, noise, lighting, pressure). No changes needed to the request format.
 
 ### Risk Score Interpretation
 
