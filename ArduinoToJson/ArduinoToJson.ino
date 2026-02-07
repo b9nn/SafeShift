@@ -113,7 +113,7 @@ void loop() {
   //mic loudness detector
   float mic_rms = micRmsOnce(); // small numeric feature, not raw audio
 
-  // ---------- One JSON packet per timestep ----------
+  // 1 packet per timestamp
   Serial.print("{\"ts_ms\":");
   Serial.print(millis());
 
@@ -161,5 +161,5 @@ void loop() {
 
   Serial.println("}");
 
-  delay(200); // 5 Hz; change to 1000 for 1 Hz if you want
+  delay(200); 
 }
