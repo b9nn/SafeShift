@@ -13,7 +13,7 @@
 - [x] Build LSTM autoencoder for anomaly detection (`src/model.py`)
 - [x] Define scoring function: anomaly score + threshold violations → **risk index 0–100**
 - [x] Training pipeline with early stopping and threshold calibration (`src/train.py`)
-- [ ] Run training and validate output
+- [x] Run training and validate output
 - [ ] Inject synthetic anomalies to verify model flags them
 
 ## Phase 3: NLP — Verbal Abuse Detection
@@ -23,7 +23,9 @@
 - [x] Aggregate abuse stats for reporting periods
 - [ ] Test with sample transcriptions
 
-## Phase 4: Shift Length Inference
+## Phase 4: Shift Length Inference (Deferred)
+
+Deferred until hardware is connected. Requires live sensor data (light, vibration, noise patterns) to detect factory on/off cycles. Will be heuristic-based, not ML.
 
 - [ ] Use operational signals (noise, vibration, light patterns) to detect shift start/end times
 - [ ] Compare inferred shift lengths against ILO limits (8 hr/day, 48 hr/week)

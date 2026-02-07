@@ -27,34 +27,35 @@ TARGET_COLS = ["temperature_c", "humidity_pct", "pressure_hpa", "light_lux"]
 # ---------------------------------------------------------------------------
 
 def load_sml2010():
-    """SML2010 smart-home dataset (2 files, space-delimited, 15-min)."""
+    """SML2010 smart-home dataset (2 files, 15-min). Prefers parquet."""
     frames = []
-    for fname in ["NEW-DATA-1.T15.txt", "NEW-DATA-2.T15.txt"]:
-        path = os.path.join(DATA_DIR, "sml2010", fname)
-        df = pd.read_csv(path, sep=r"\s+", header=0, comment="#")
-        # Header row starts with '#' — pandas comment strips it, so column
-        # names may be wrong.  Re-read with manual column names.
-        col_names = [
-            "Date", "Time",
-            "Temperature_Comedor_Sensor", "Temperature_Habitacion_Sensor",
-            "Weather_Temperature",
-            "CO2_Comedor_Sensor", "CO2_Habitacion_Sensor",
-            "Humedad_Comedor_Sensor", "Humedad_Habitacion_Sensor",
-            "Lighting_Comedor_Sensor", "Lighting_Habitacion_Sensor",
-            "Precipitacion", "Meteo_Exterior_Crepusculo",
-            "Meteo_Exterior_Viento",
-            "Meteo_Exterior_Sol_Oest", "Meteo_Exterior_Sol_Est",
-            "Meteo_Exterior_Sol_Sud", "Meteo_Exterior_Piranometro",
-            "Exterior_Entalpic_1", "Exterior_Entalpic_2",
-            "Exterior_Entalpic_turbo",
-            "Temperature_Exterior_Sensor", "Humedad_Exterior_Sensor",
-            "Day_Of_Week",
-        ]
-        df = pd.read_csv(path, sep=r"\s+", skiprows=1, header=None,
-                         names=col_names)
-        df["timestamp"] = pd.to_datetime(
-            df["Date"] + " " + df["Time"], format="%d/%m/%Y %H:%M"
-        )
+    for fname_base in ["NEW-DATA-1.T15", "NEW-DATA-2.T15"]:
+        parquet = os.path.join(DATA_DIR, "sml2010", fname_base + ".parquet")
+        if os.path.exists(parquet):
+            df = pd.read_parquet(parquet)
+        else:
+            txt = os.path.join(DATA_DIR, "sml2010", fname_base + ".txt")
+            col_names = [
+                "Date", "Time",
+                "Temperature_Comedor_Sensor", "Temperature_Habitacion_Sensor",
+                "Weather_Temperature",
+                "CO2_Comedor_Sensor", "CO2_Habitacion_Sensor",
+                "Humedad_Comedor_Sensor", "Humedad_Habitacion_Sensor",
+                "Lighting_Comedor_Sensor", "Lighting_Habitacion_Sensor",
+                "Precipitacion", "Meteo_Exterior_Crepusculo",
+                "Meteo_Exterior_Viento",
+                "Meteo_Exterior_Sol_Oest", "Meteo_Exterior_Sol_Est",
+                "Meteo_Exterior_Sol_Sud", "Meteo_Exterior_Piranometro",
+                "Exterior_Entalpic_1", "Exterior_Entalpic_2",
+                "Exterior_Entalpic_turbo",
+                "Temperature_Exterior_Sensor", "Humedad_Exterior_Sensor",
+                "Day_Of_Week",
+            ]
+            df = pd.read_csv(txt, sep=r"\s+", skiprows=1, header=None,
+                             names=col_names)
+            df["timestamp"] = pd.to_datetime(
+                df["Date"] + " " + df["Time"], format="%d/%m/%Y %H:%M"
+            )
         out = pd.DataFrame({
             "timestamp":     df["timestamp"],
             "temperature_c": df["Temperature_Comedor_Sensor"],
@@ -67,11 +68,15 @@ def load_sml2010():
 
 
 def load_air_quality_dataset():
-    """Air-Quality-Dataset.csv (semicolon, European decimals, irregular)."""
-    path = os.path.join(DATA_DIR, "air-quality", "Air-Quality-Dataset.csv")
-    df = pd.read_csv(path, sep=";", decimal=",", encoding="utf-8-sig")
-    df["timestamp"] = pd.to_datetime(df["TIME"], utc=True)
-    df["timestamp"] = df["timestamp"].dt.tz_localize(None)
+    """Air-Quality-Dataset.csv (irregular intervals). Prefers parquet."""
+    parquet = os.path.join(DATA_DIR, "air-quality", "Air-Quality-Dataset.parquet")
+    if os.path.exists(parquet):
+        df = pd.read_parquet(parquet)
+    else:
+        csv = os.path.join(DATA_DIR, "air-quality", "Air-Quality-Dataset.csv")
+        df = pd.read_csv(csv, sep=";", decimal=",", encoding="utf-8-sig")
+        df["timestamp"] = pd.to_datetime(df["TIME"], utc=True)
+        df["timestamp"] = df["timestamp"].dt.tz_localize(None)
     out = pd.DataFrame({
         "timestamp":     df["timestamp"],
         "temperature_c": pd.to_numeric(df["TEMPERATURE"], errors="coerce"),
@@ -85,19 +90,19 @@ def load_air_quality_dataset():
 
 
 def load_air_quality_uci():
-    """AirQualityUCI.csv (semicolon, European decimals, hourly).
-    Uses -200 as missing sentinel.
-    """
-    path = os.path.join(DATA_DIR, "air-quality", "AirQualityUCI.csv")
-    df = pd.read_csv(path, sep=";", decimal=",", encoding="utf-8-sig")
-    # Drop fully empty trailing columns
-    df = df.dropna(axis=1, how="all")
-    df["timestamp"] = pd.to_datetime(
-        df["Date"] + " " + df["Time"], format="%d/%m/%Y %H.%M.%S"
-    )
+    """AirQualityUCI (hourly, -200 sentinels). Prefers parquet."""
+    parquet = os.path.join(DATA_DIR, "air-quality", "AirQualityUCI.parquet")
+    if os.path.exists(parquet):
+        df = pd.read_parquet(parquet)
+    else:
+        csv = os.path.join(DATA_DIR, "air-quality", "AirQualityUCI.csv")
+        df = pd.read_csv(csv, sep=";", decimal=",", encoding="utf-8-sig")
+        df = df.dropna(axis=1, how="all")
+        df["timestamp"] = pd.to_datetime(
+            df["Date"] + " " + df["Time"], format="%d/%m/%Y %H.%M.%S"
+        )
     t = pd.to_numeric(df["T"], errors="coerce")
     rh = pd.to_numeric(df["RH"], errors="coerce")
-    # Replace -200 sentinel with NaN
     t = t.replace(-200, np.nan)
     rh = rh.replace(-200, np.nan)
     out = pd.DataFrame({
@@ -111,15 +116,16 @@ def load_air_quality_uci():
 
 
 def load_beijing_pm25():
-    """Beijing PM2.5 (comma-delimited, hourly, has TEMP + PRES)."""
-    path = os.path.join(DATA_DIR, "beijing-pm25",
-                        "PRSA_data_2010.1.1-2014.12.31.csv")
-    df = pd.read_csv(path)
-    df["timestamp"] = pd.to_datetime(
-        df[["year", "month", "day", "hour"]]
-        .rename(columns={"year": "year", "month": "month",
-                         "day": "day", "hour": "hour"})
-    )
+    """Beijing PM2.5 (hourly, has TEMP + PRES). Prefers parquet."""
+    parquet = os.path.join(DATA_DIR, "beijing-pm25",
+                           "PRSA_data_2010.1.1-2014.12.31.parquet")
+    if os.path.exists(parquet):
+        df = pd.read_parquet(parquet)
+    else:
+        csv = os.path.join(DATA_DIR, "beijing-pm25",
+                           "PRSA_data_2010.1.1-2014.12.31.csv")
+        df = pd.read_csv(csv)
+        df["timestamp"] = pd.to_datetime(df[["year", "month", "day", "hour"]])
     out = pd.DataFrame({
         "timestamp":     df["timestamp"],
         "temperature_c": pd.to_numeric(df["TEMP"], errors="coerce"),
@@ -236,11 +242,14 @@ def scale_and_window(df):
     # Safety check after scaling
     data = np.nan_to_num(data, nan=0.0, posinf=0.0, neginf=0.0)
 
-    # Sliding windows
-    windows = []
-    for i in range(len(data) - WINDOW_SIZE + 1):
-        windows.append(data[i : i + WINDOW_SIZE])
-    windows = np.array(windows, dtype=np.float32)
+    # Sliding windows (vectorized with stride_tricks — no Python loop)
+    n_windows = len(data) - WINDOW_SIZE + 1
+    stride = data.strides  # (row_bytes, col_bytes)
+    windows = np.lib.stride_tricks.as_strided(
+        data,
+        shape=(n_windows, WINDOW_SIZE, data.shape[1]),
+        strides=(stride[0], stride[0], stride[1]),
+    ).copy().astype(np.float32)
 
     # Split (respecting time order)
     split_w = int(len(windows) * TRAIN_SPLIT)

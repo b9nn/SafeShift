@@ -1,0 +1,20 @@
+{
+  "anomaly_threshold": 3.527132503222674e-05,
+  "percentile": 95,
+  "val_error_min": 5.177885668672388e-06,
+  "val_error_max": 0.0006995720905251801,
+  "val_error_mean": 1.679670276644174e-05,
+  "n_features": 10,
+  "feature_cols": [
+    "temperature_c",
+    "humidity_pct",
+    "pressure_hpa",
+    "light_lux",
+    "temperature_c_thresh_dist",
+    "humidity_pct_thresh_dist",
+    "pressure_hpa_thresh_dist",
+    "light_lux_thresh_dist",
+    "hour_sin",
+    "hour_cos"
+  ]
+}

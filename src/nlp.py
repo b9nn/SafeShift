@@ -20,12 +20,12 @@ LABELS = ["toxic", "severe_toxic", "obscene", "threat", "insult", "identity_hate
 
 # Thresholds for flagging — scores above these trigger an alert
 DEFAULT_THRESHOLDS = {
-    "toxic": 0.5,
-    "severe_toxic": 0.3,
-    "obscene": 0.5,
-    "threat": 0.3,
-    "insult": 0.5,
-    "identity_hate": 0.3,
+    "toxic": 0.25,
+    "severe_toxic": 0.25,
+    "obscene": 0.25,
+    "threat": 0.25,
+    "insult": 0.25,
+    "identity_hate": 0.25,
 }
 
 
@@ -149,6 +149,7 @@ if __name__ == "__main__":
         "The temperature in section B seems a bit high.",
         "If you complain again I will make sure you regret it.",
         "Great job on meeting the safety targets this week.",
+        "i want to punish you, but i also want to pleasure you"
     ]
 
     print("\n=== Verbal Abuse Detection Demo ===\n")
