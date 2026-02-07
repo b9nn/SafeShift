@@ -110,6 +110,9 @@ CREATE OR REPLACE TASK TASK_COMPUTE_HOURLY_COMPLIANCE
     WHEN SYSTEM$STREAM_HAS_DATA('STREAM_SENSOR_CLEAN')
     COMMENT = 'Child task: computes hourly compliance scores from clean sensor data'
 AS
+    -- Compliance scoring aligned with Arduino Nano 33 BLE Sense sensors:
+    -- temperature (HTS221), humidity (HTS221), pressure (LPS22HB),
+    -- light (APDS-9960), vibration (LSM9DS1), noise (MP34DT05)
     INSERT INTO ANALYTICS.FACT_HOURLY_COMPLIANCE (
         factory_id, sensor_node_id, hour_timestamp,
         avg_temperature_c, avg_humidity_pct, avg_co2_ppm, avg_pm25,
@@ -125,45 +128,51 @@ AS
         -- Averages
         AVG(temperature_c),
         AVG(humidity_pct),
-        AVG(co2_ppm),
-        AVG(pm25_mg_m3),
+        NULL,                                                            -- No CO2 sensor on Arduino
+        NULL,                                                            -- No PM2.5 sensor on Arduino
         AVG(noise_dba),
         AVG(light_lux),
         AVG(vibration_ms2),
         -- Breach counts (based on safety_thresholds.json values)
         SUM(IFF(temperature_c < 20 OR temperature_c > 24.4, 1, 0)),     -- 68-76°F
         SUM(IFF(humidity_pct < 20 OR humidity_pct > 60, 1, 0)),
-        SUM(IFF(co2_ppm > 1000, 1, 0)),                                 -- Recommended max
-        SUM(IFF(pm25_mg_m3 > 5.0, 1, 0)),                               -- Respirable PEL
+        0,                                                               -- No CO2 sensor
+        0,                                                               -- No PM2.5 sensor
         SUM(IFF(noise_dba > 85, 1, 0)),                                  -- Action level
         SUM(IFF(light_lux < 300, 1, 0)),                                 -- Factory floor min
         SUM(IFF(vibration_ms2 > 2.5, 1, 0)),                            -- HAV action value
-        -- Composite compliance score (100 = perfect, 0 = all breaching)
+        -- Composite compliance score (100 = perfect, reweighted for available sensors)
+        -- Weights: temperature=15, humidity=10, noise=25, light=15, vibration=20
+        -- Remaining 15 points = baseline (always compliant if no data)
         GREATEST(0, 100 - (
-            SUM(IFF(temperature_c < 20 OR temperature_c > 24.4, 1, 0)) * 5 +
-            SUM(IFF(humidity_pct < 20 OR humidity_pct > 60, 1, 0)) * 3 +
-            SUM(IFF(co2_ppm > 1000, 1, 0)) * 15 +
-            SUM(IFF(pm25_mg_m3 > 5.0, 1, 0)) * 20 +
-            SUM(IFF(noise_dba > 85, 1, 0)) * 10 +
-            SUM(IFF(light_lux < 300, 1, 0)) * 5 +
-            SUM(IFF(vibration_ms2 > 2.5, 1, 0)) * 10
+            SUM(IFF(temperature_c < 20 OR temperature_c > 24.4, 1, 0)) * 8 +
+            SUM(IFF(humidity_pct < 20 OR humidity_pct > 60, 1, 0)) * 5 +
+            SUM(IFF(noise_dba > 85, 1, 0)) * 15 +
+            SUM(IFF(light_lux < 300, 1, 0)) * 8 +
+            SUM(IFF(vibration_ms2 > 2.5, 1, 0)) * 12
         )),
-        -- Risk level
+        -- Risk level (based on full compliance score)
         CASE
             WHEN GREATEST(0, 100 - (
-                SUM(IFF(co2_ppm > 1000, 1, 0)) * 15 +
-                SUM(IFF(pm25_mg_m3 > 5.0, 1, 0)) * 20 +
-                SUM(IFF(noise_dba > 85, 1, 0)) * 10
+                SUM(IFF(temperature_c < 20 OR temperature_c > 24.4, 1, 0)) * 8 +
+                SUM(IFF(humidity_pct < 20 OR humidity_pct > 60, 1, 0)) * 5 +
+                SUM(IFF(noise_dba > 85, 1, 0)) * 15 +
+                SUM(IFF(light_lux < 300, 1, 0)) * 8 +
+                SUM(IFF(vibration_ms2 > 2.5, 1, 0)) * 12
             )) >= 80 THEN 'LOW'
             WHEN GREATEST(0, 100 - (
-                SUM(IFF(co2_ppm > 1000, 1, 0)) * 15 +
-                SUM(IFF(pm25_mg_m3 > 5.0, 1, 0)) * 20 +
-                SUM(IFF(noise_dba > 85, 1, 0)) * 10
+                SUM(IFF(temperature_c < 20 OR temperature_c > 24.4, 1, 0)) * 8 +
+                SUM(IFF(humidity_pct < 20 OR humidity_pct > 60, 1, 0)) * 5 +
+                SUM(IFF(noise_dba > 85, 1, 0)) * 15 +
+                SUM(IFF(light_lux < 300, 1, 0)) * 8 +
+                SUM(IFF(vibration_ms2 > 2.5, 1, 0)) * 12
             )) >= 50 THEN 'MEDIUM'
             WHEN GREATEST(0, 100 - (
-                SUM(IFF(co2_ppm > 1000, 1, 0)) * 15 +
-                SUM(IFF(pm25_mg_m3 > 5.0, 1, 0)) * 20 +
-                SUM(IFF(noise_dba > 85, 1, 0)) * 10
+                SUM(IFF(temperature_c < 20 OR temperature_c > 24.4, 1, 0)) * 8 +
+                SUM(IFF(humidity_pct < 20 OR humidity_pct > 60, 1, 0)) * 5 +
+                SUM(IFF(noise_dba > 85, 1, 0)) * 15 +
+                SUM(IFF(light_lux < 300, 1, 0)) * 8 +
+                SUM(IFF(vibration_ms2 > 2.5, 1, 0)) * 12
             )) >= 20 THEN 'HIGH'
             ELSE 'CRITICAL'
         END,
@@ -171,8 +180,6 @@ AS
         OBJECT_CONSTRUCT(
             'temperature', SUM(IFF(temperature_c < 20 OR temperature_c > 24.4, 1, 0)),
             'humidity', SUM(IFF(humidity_pct < 20 OR humidity_pct > 60, 1, 0)),
-            'co2', SUM(IFF(co2_ppm > 1000, 1, 0)),
-            'pm25', SUM(IFF(pm25_mg_m3 > 5.0, 1, 0)),
             'noise', SUM(IFF(noise_dba > 85, 1, 0)),
             'light', SUM(IFF(light_lux < 300, 1, 0)),
             'vibration', SUM(IFF(vibration_ms2 > 2.5, 1, 0))
@@ -187,46 +194,44 @@ CREATE OR REPLACE TASK TASK_UPDATE_FEATURE_STORE
     AFTER TASK_COMPUTE_HOURLY_COMPLIANCE
     COMMENT = 'Child task: updates ML feature store with rolling window features'
 AS
+    -- Feature store aligned with Arduino Nano 33 BLE Sense sensors
     INSERT INTO ML.FEATURE_STORE (
         feature_timestamp, factory_id,
-        co2_1h_avg, co2_1h_std, co2_24h_avg, co2_24h_max,
         temp_1h_avg, temp_1h_std, temp_24h_avg,
-        humidity_1h_avg, pm25_1h_avg, pm25_24h_max,
+        humidity_1h_avg, humidity_1h_std, humidity_24h_avg,
+        light_1h_avg, light_1h_std, pressure_1h_avg,
         noise_1h_avg, noise_1h_max,
-        heat_index, air_quality_index, breach_rate_24h,
-        hour_of_day, day_of_week, is_weekend, minutes_since_shift_start
+        vibration_1h_avg, vibration_1h_max,
+        heat_index, breach_rate_24h,
+        hour_of_day, day_of_week, is_weekend
     )
     SELECT
         DATE_TRUNC('HOUR', reading_timestamp) AS feature_timestamp,
         factory_id,
-        AVG(co2_ppm) OVER w_1h,
-        STDDEV(co2_ppm) OVER w_1h,
-        AVG(co2_ppm) OVER w_24h,
-        MAX(co2_ppm) OVER w_24h,
         AVG(temperature_c) OVER w_1h,
         STDDEV(temperature_c) OVER w_1h,
         AVG(temperature_c) OVER w_24h,
         AVG(humidity_pct) OVER w_1h,
-        AVG(pm25_mg_m3) OVER w_1h,
-        MAX(pm25_mg_m3) OVER w_24h,
+        STDDEV(humidity_pct) OVER w_1h,
+        AVG(humidity_pct) OVER w_24h,
+        AVG(light_lux) OVER w_1h,
+        STDDEV(light_lux) OVER w_1h,
+        AVG(pressure_kpa) OVER w_1h,
         AVG(noise_dba) OVER w_1h,
         MAX(noise_dba) OVER w_1h,
+        AVG(vibration_ms2) OVER w_1h,
+        MAX(vibration_ms2) OVER w_1h,
         -- Heat index approximation (Rothfusz regression simplified)
         -42.379 + 2.04901523 * ((temperature_c * 9/5) + 32)
             + 10.14333127 * humidity_pct
             - 0.22475541 * ((temperature_c * 9/5) + 32) * humidity_pct,
-        -- Simple composite AQI
-        (COALESCE(co2_ppm / 1000, 0) + COALESCE(pm25_mg_m3 / 5.0, 0)
-            + COALESCE(voc_mg_m3 / 0.5, 0)) / 3.0 * 100,
-        -- 24h breach rate
-        SUM(IFF(co2_ppm > 1000 OR pm25_mg_m3 > 5.0 OR noise_dba > 85, 1, 0)) OVER w_24h
+        -- 24h breach rate (based on available Arduino sensors)
+        SUM(IFF(temperature_c < 20 OR temperature_c > 24.4
+            OR noise_dba > 85 OR vibration_ms2 > 2.5, 1, 0)) OVER w_24h
             / NULLIF(COUNT(*) OVER w_24h, 0),
         HOUR(reading_timestamp),
         DAYOFWEEK(reading_timestamp),
-        DAYOFWEEK(reading_timestamp) IN (0, 6),
-        DATEDIFF('MINUTE',
-            DATE_TRUNC('DAY', reading_timestamp) + INTERVAL '6 HOURS',
-            reading_timestamp)
+        DAYOFWEEK(reading_timestamp) IN (0, 6)
     FROM STAGING.SENSOR_READINGS_CLEAN
     WHERE is_valid = TRUE
         AND reading_timestamp >= DATEADD('DAY', -2, CURRENT_TIMESTAMP())
@@ -267,8 +272,7 @@ AS
     INSERT INTO ANALYTICS.FACT_DAILY_COMPLIANCE (
         factory_id, compliance_date,
         avg_compliance_score, min_compliance_score, max_compliance_score,
-        total_breaches, breach_breakdown, risk_level,
-        shift_hours_detected, shift_compliance
+        total_breaches, breach_breakdown, risk_level
     )
     SELECT
         factory_id,
@@ -276,13 +280,11 @@ AS
         AVG(compliance_score),
         MIN(compliance_score),
         MAX(compliance_score),
-        SUM(temperature_breaches + humidity_breaches + co2_breaches
-            + pm25_breaches + noise_breaches + light_breaches + vibration_breaches),
+        SUM(temperature_breaches + humidity_breaches
+            + noise_breaches + light_breaches + vibration_breaches),
         OBJECT_CONSTRUCT(
             'temperature', SUM(temperature_breaches),
             'humidity', SUM(humidity_breaches),
-            'co2', SUM(co2_breaches),
-            'pm25', SUM(pm25_breaches),
             'noise', SUM(noise_breaches),
             'light', SUM(light_breaches),
             'vibration', SUM(vibration_breaches)
@@ -292,11 +294,7 @@ AS
             WHEN AVG(compliance_score) >= 50 THEN 'MEDIUM'
             WHEN AVG(compliance_score) >= 20 THEN 'HIGH'
             ELSE 'CRITICAL'
-        END,
-        -- Estimate shift hours: count hours with sensor activity
-        COUNT(DISTINCT DATE_TRUNC('HOUR', hour_timestamp)),
-        -- Shift compliance: within ILO 8-hour standard?
-        COUNT(DISTINCT DATE_TRUNC('HOUR', hour_timestamp)) <= 10
+        END
     FROM ANALYTICS.FACT_HOURLY_COMPLIANCE
     WHERE hour_timestamp::DATE = CURRENT_DATE() - 1
     GROUP BY factory_id, hour_timestamp::DATE;
@@ -332,8 +330,7 @@ AS
         OBJECT_CONSTRUCT(
             'compliance_date', compliance_date,
             'risk_level', risk_level,
-            'total_breaches', total_breaches,
-            'shift_compliant', shift_compliance
+            'total_breaches', total_breaches
         )
     FROM ANALYTICS.FACT_DAILY_COMPLIANCE
     WHERE compliance_date = CURRENT_DATE() - 1

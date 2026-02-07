@@ -126,7 +126,7 @@ AS
         AVG(hc.compliance_score) AS avg_score_24h,
         MIN(hc.compliance_score) AS min_score_24h,
         COUNT(DISTINCT hc.hour_timestamp) AS active_hours_24h,
-        SUM(hc.co2_breaches + hc.pm25_breaches + hc.noise_breaches) AS critical_breaches_24h,
+        SUM(hc.temperature_breaches + hc.noise_breaches + hc.vibration_breaches) AS critical_breaches_24h,
         -- Reward eligibility
         CASE
             WHEN AVG(hc.compliance_score) >= 95 THEN 'CERTIFICATION ELIGIBLE'
@@ -203,8 +203,6 @@ CREATE OR REPLACE MATERIALIZED VIEW MV_WEEKLY_COMPLIANCE_TREND AS
         MIN(min_compliance_score) AS weekly_min_score,
         SUM(total_breaches) AS weekly_total_breaches,
         MODE(risk_level) AS predominant_risk_level,
-        AVG(shift_hours_detected) AS avg_daily_shift_hours,
-        SUM(IFF(shift_compliance, 1, 0)) AS days_shift_compliant,
         COUNT(*) AS days_monitored
     FROM FACT_DAILY_COMPLIANCE
     GROUP BY factory_id, DATE_TRUNC('WEEK', compliance_date);

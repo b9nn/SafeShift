@@ -18,30 +18,28 @@ USE WAREHOUSE ANALYTICS_WH;
 
 -- ===================== SQL UDFs =====================
 
--- ---- Compute compliance score from raw metrics ----
+-- ---- Compute compliance score from Arduino Nano 33 BLE Sense metrics ----
+-- Sensors: HTS221 (temp/humidity), LPS22HB (pressure), APDS-9960 (light),
+--          LSM9DS1 (vibration), MP34DT05 (noise)
 CREATE OR REPLACE FUNCTION COMPUTE_COMPLIANCE_SCORE(
     temperature_c FLOAT,
     humidity_pct FLOAT,
-    co2_ppm FLOAT,
-    pm25_mg_m3 FLOAT,
     noise_dba FLOAT,
     light_lux FLOAT,
     vibration_ms2 FLOAT
 )
 RETURNS FLOAT
 LANGUAGE SQL
-COMMENT = 'Computes a 0-100 compliance score based on OSHA/ILO thresholds from safety_thresholds.json'
+COMMENT = 'Computes a 0-100 compliance score based on OSHA/ILO thresholds for Arduino sensors'
 AS
 $$
     GREATEST(0, LEAST(100,
         100
-        - IFF(temperature_c < 20 OR temperature_c > 24.4, 10, 0)       -- 68-76°F range
-        - IFF(humidity_pct < 20 OR humidity_pct > 60, 5, 0)
-        - IFF(co2_ppm > 5000, 30, IFF(co2_ppm > 1000, 15, 0))         -- PEL vs recommended
-        - IFF(pm25_mg_m3 > 5.0, 20, IFF(pm25_mg_m3 > 2.5, 10, 0))
-        - IFF(noise_dba > 90, 20, IFF(noise_dba > 85, 10, 0))         -- PEL vs action level
-        - IFF(light_lux < 110, 10, IFF(light_lux < 300, 5, 0))        -- Warehouse vs factory
-        - IFF(vibration_ms2 > 5.0, 15, IFF(vibration_ms2 > 2.5, 8, 0)) -- EU limit vs action
+        - IFF(temperature_c < 20 OR temperature_c > 24.4, 15, 0)       -- 68-76°F range
+        - IFF(humidity_pct < 20 OR humidity_pct > 60, 10, 0)
+        - IFF(noise_dba > 90, 25, IFF(noise_dba > 85, 15, 0))         -- PEL vs action level
+        - IFF(light_lux < 110, 15, IFF(light_lux < 300, 8, 0))        -- Warehouse vs factory
+        - IFF(vibration_ms2 > 5.0, 20, IFF(vibration_ms2 > 2.5, 12, 0)) -- EU limit vs action
     ))
 $$;
 
@@ -167,57 +165,6 @@ $$
     return 500; // Beyond AQI scale
 $$;
 
--- ===================== PYTHON UDF (Snowpark) =====================
-
--- ---- Detect shift patterns from timestamps ----
-CREATE OR REPLACE FUNCTION DETECT_SHIFT_PATTERN(timestamps ARRAY)
-RETURNS VARIANT
-LANGUAGE PYTHON
-RUNTIME_VERSION = '3.11'
-PACKAGES = ('numpy')
-HANDLER = 'detect_shifts'
-COMMENT = 'Detects shift start/end times and duration from an array of reading timestamps'
-AS
-$$
-import numpy as np
-from datetime import datetime
-
-def detect_shifts(timestamps):
-    if not timestamps or len(timestamps) < 2:
-        return {"shift_detected": False, "reason": "insufficient data"}
-
-    # Parse timestamps and extract hours
-    hours = []
-    for ts in timestamps:
-        try:
-            if isinstance(ts, str):
-                dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
-            else:
-                dt = ts
-            hours.append(dt.hour + dt.minute / 60.0)
-        except:
-            continue
-
-    if len(hours) < 2:
-        return {"shift_detected": False, "reason": "parse failure"}
-
-    hours = np.array(hours)
-    min_hour = float(np.min(hours))
-    max_hour = float(np.max(hours))
-    duration = max_hour - min_hour
-
-    # Detect shift pattern
-    return {
-        "shift_detected": True,
-        "estimated_start_hour": round(min_hour, 1),
-        "estimated_end_hour": round(max_hour, 1),
-        "estimated_duration_hours": round(duration, 1),
-        "exceeds_standard_shift": duration > 8,
-        "exceeds_extended_shift": duration > 10,
-        "reading_count": len(hours)
-    }
-$$;
-
 -- ===================== STORED PROCEDURES =====================
 
 -- ---- Procedure: Load safety thresholds from JSON config ----
@@ -293,15 +240,6 @@ BEGIN
            :config_json:vibration.hand_arm.exposure_limit_8hr,
            'EU Directive 2002/44/EC', :config_json:vibration;
 
-    -- Shift thresholds
-    INSERT INTO ANALYTICS.DIM_SAFETY_THRESHOLDS
-        (metric_name, unit, threshold_type, threshold_value, standard_source, raw_config)
-    SELECT 'shift_length', 'hours', 'standard_daily_max', :config_json:shift_length.standard_daily_max,
-           'ILO Convention No. 1', :config_json:shift_length
-    UNION ALL
-    SELECT 'shift_length', 'hours', 'weekly_max', :config_json:shift_length.weekly_max,
-           'ILO Convention No. 1', :config_json:shift_length;
-
     RETURN 'Safety thresholds loaded successfully';
 END;
 $$;
@@ -330,8 +268,6 @@ BEGIN
         'breaches', total_breaches,
         'breach_breakdown', breach_breakdown,
         'risk_level', risk_level,
-        'shift_hours', shift_hours_detected,
-        'shift_compliant', shift_compliance,
         'generated_at', CURRENT_TIMESTAMP()
     ) INTO :v_report
     FROM ANALYTICS.FACT_DAILY_COMPLIANCE
@@ -383,32 +319,28 @@ BEGIN
     res := (
         WITH current_data AS (
             SELECT
-                AVG(co2_ppm) AS avg_co2,
                 AVG(temperature_c) AS avg_temp,
                 AVG(humidity_pct) AS avg_humidity,
-                AVG(pm25_mg_m3) AS avg_pm25,
-                AVG(noise_dba) AS avg_noise
+                AVG(light_lux) AS avg_light,
+                AVG(noise_dba) AS avg_noise,
+                AVG(vibration_ms2) AS avg_vibration
             FROM STAGING.SENSOR_READINGS_CLEAN
             WHERE factory_id = :p_factory_id
                 AND reading_timestamp >= DATEADD('HOUR', -1, CURRENT_TIMESTAMP())
         ),
         past_data AS (
             SELECT
-                AVG(co2_ppm) AS avg_co2,
                 AVG(temperature_c) AS avg_temp,
                 AVG(humidity_pct) AS avg_humidity,
-                AVG(pm25_mg_m3) AS avg_pm25,
-                AVG(noise_dba) AS avg_noise
+                AVG(light_lux) AS avg_light,
+                AVG(noise_dba) AS avg_noise,
+                AVG(vibration_ms2) AS avg_vibration
             FROM STAGING.SENSOR_READINGS_CLEAN
                 AT(OFFSET => -60 * :p_minutes_ago)
             WHERE factory_id = :p_factory_id
                 AND reading_timestamp >= DATEADD('HOUR', -1, CURRENT_TIMESTAMP())
         )
-        SELECT 'CO2 (ppm)' AS metric, c.avg_co2, p.avg_co2,
-               (c.avg_co2 - p.avg_co2) / NULLIF(p.avg_co2, 0) * 100
-        FROM current_data c, past_data p
-        UNION ALL
-        SELECT 'Temperature (C)', c.avg_temp, p.avg_temp,
+        SELECT 'Temperature (C)' AS metric, c.avg_temp, p.avg_temp,
                (c.avg_temp - p.avg_temp) / NULLIF(p.avg_temp, 0) * 100
         FROM current_data c, past_data p
         UNION ALL
@@ -416,12 +348,16 @@ BEGIN
                (c.avg_humidity - p.avg_humidity) / NULLIF(p.avg_humidity, 0) * 100
         FROM current_data c, past_data p
         UNION ALL
-        SELECT 'PM2.5 (mg/m3)', c.avg_pm25, p.avg_pm25,
-               (c.avg_pm25 - p.avg_pm25) / NULLIF(p.avg_pm25, 0) * 100
+        SELECT 'Light (lux)', c.avg_light, p.avg_light,
+               (c.avg_light - p.avg_light) / NULLIF(p.avg_light, 0) * 100
         FROM current_data c, past_data p
         UNION ALL
         SELECT 'Noise (dBA)', c.avg_noise, p.avg_noise,
                (c.avg_noise - p.avg_noise) / NULLIF(p.avg_noise, 0) * 100
+        FROM current_data c, past_data p
+        UNION ALL
+        SELECT 'Vibration (m/s2)', c.avg_vibration, p.avg_vibration,
+               (c.avg_vibration - p.avg_vibration) / NULLIF(p.avg_vibration, 0) * 100
         FROM current_data c, past_data p
     );
     RETURN TABLE(res);
@@ -473,44 +409,25 @@ CREATE OR REPLACE ALERT ALERT_SENSOR_OFFLINE
             'One or more active sensor nodes have not reported data in 30+ minutes. Check connectivity.'
         );
 
--- ---- Alert: CO2 approaching IDLH (40,000 ppm) ----
-CREATE OR REPLACE ALERT ALERT_CO2_DANGER
+-- ---- Alert: Excessive noise detected ----
+CREATE OR REPLACE ALERT ALERT_NOISE_DANGER
     WAREHOUSE = ANALYTICS_WH
-    SCHEDULE = '1 MINUTE'
+    SCHEDULE = '5 MINUTE'
     IF (EXISTS (
         SELECT 1
         FROM STAGING.SENSOR_READINGS_CLEAN
-        WHERE co2_ppm > 5000     -- Above PEL
-            AND reading_timestamp >= DATEADD('MINUTE', -5, CURRENT_TIMESTAMP())
+        WHERE noise_dba > 90     -- Above OSHA PEL
+            AND reading_timestamp >= DATEADD('MINUTE', -10, CURRENT_TIMESTAMP())
     ))
     THEN
         CALL SYSTEM$SEND_EMAIL(
             'safeshift_alerts',
             'emergency@safeshift.io',
-            'DANGER: CO2 ABOVE PEL — SafeShift',
-            'CO2 levels have exceeded the OSHA PEL of 5,000 ppm. If levels approach 40,000 ppm (IDLH), evacuation is necessary.'
-        );
-
--- ---- Alert: Excessive shift length detected ----
-CREATE OR REPLACE ALERT ALERT_SHIFT_VIOLATION
-    WAREHOUSE = ANALYTICS_WH
-    SCHEDULE = '30 MINUTE'
-    IF (EXISTS (
-        SELECT 1
-        FROM ANALYTICS.FACT_DAILY_COMPLIANCE
-        WHERE shift_hours_detected > 10    -- ILO extended max
-            AND compliance_date = CURRENT_DATE()
-    ))
-    THEN
-        CALL SYSTEM$SEND_EMAIL(
-            'safeshift_alerts',
-            'compliance@safeshift.io',
-            'SHIFT VIOLATION — SafeShift',
-            'A factory has exceeded the ILO extended shift maximum of 10 hours. Review required.'
+            'DANGER: NOISE ABOVE PEL — SafeShift',
+            'Noise levels have exceeded the OSHA PEL of 90 dBA. Hearing protection required immediately.'
         );
 
 -- Resume all alerts
 ALTER ALERT ALERT_CRITICAL_RISK RESUME;
 ALTER ALERT ALERT_SENSOR_OFFLINE RESUME;
-ALTER ALERT ALERT_CO2_DANGER RESUME;
-ALTER ALERT ALERT_SHIFT_VIOLATION RESUME;
+ALTER ALERT ALERT_NOISE_DANGER RESUME;

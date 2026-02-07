@@ -322,8 +322,6 @@ CREATE OR REPLACE TABLE FACT_DAILY_COMPLIANCE (
     total_breaches      INTEGER,
     breach_breakdown    VARIANT     COMMENT 'Breach counts by category',
     risk_level          VARCHAR(20),
-    shift_hours_detected FLOAT      COMMENT 'Estimated hours of operation',
-    shift_compliance    BOOLEAN     COMMENT 'Within ILO shift limits?',
     computed_at         TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
 )
     CLUSTER BY (factory_id, compliance_date)

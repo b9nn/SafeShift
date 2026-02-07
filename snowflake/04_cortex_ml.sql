@@ -25,16 +25,18 @@ USE WAREHOUSE CORTEX_WH;
 -- This is the core ML use case for SafeShift
 
 -- Create training view with time-series sensor data
+-- Training view aligned with Arduino Nano 33 BLE Sense sensors:
+-- HTS221 (temp/humidity), LPS22HB (pressure), APDS-9960 (light),
+-- LSM9DS1 (vibration proxy), MP34DT05 (noise proxy)
 CREATE OR REPLACE VIEW V_ANOMALY_TRAINING_DATA AS
     SELECT
         reading_timestamp,
         factory_id,
         temperature_c,
         humidity_pct,
-        co2_ppm,
-        pm25_mg_m3,
-        noise_dba,
+        pressure_kpa,
         light_lux,
+        noise_dba,
         vibration_ms2
     FROM STAGING.SENSOR_READINGS_CLEAN
     WHERE is_valid = TRUE
@@ -46,10 +48,10 @@ CREATE OR REPLACE SNOWFLAKE.ML.ANOMALY_DETECTION SENSOR_ANOMALY_MODEL(
     INPUT_DATA => SYSTEM$REFERENCE('VIEW', 'V_ANOMALY_TRAINING_DATA'),
     SERIES_COLNAME => 'FACTORY_ID',
     TIMESTAMP_COLNAME => 'READING_TIMESTAMP',
-    TARGET_COLNAME => 'CO2_PPM',
+    TARGET_COLNAME => 'TEMPERATURE_C',
     LABEL_COLNAME => ''
 )
-COMMENT = 'Anomaly detection model for CO2 levels per factory — flags abnormal readings';
+COMMENT = 'Anomaly detection model for temperature per factory — flags abnormal readings';
 
 -- Create a model for temperature anomalies
 CREATE OR REPLACE SNOWFLAKE.ML.ANOMALY_DETECTION TEMP_ANOMALY_MODEL(
@@ -69,7 +71,7 @@ CREATE OR REPLACE TABLE ANOMALY_RESULTS AS
             INPUT_DATA => SYSTEM$REFERENCE('VIEW', 'V_ANOMALY_TRAINING_DATA'),
             SERIES_COLNAME => 'FACTORY_ID',
             TIMESTAMP_COLNAME => 'READING_TIMESTAMP',
-            TARGET_COLNAME => 'CO2_PPM'
+            TARGET_COLNAME => 'TEMPERATURE_C'
         )
     );
 
@@ -82,12 +84,12 @@ CREATE OR REPLACE SNOWFLAKE.ML.FORECAST SENSOR_FORECAST_MODEL(
     INPUT_DATA => SYSTEM$REFERENCE('VIEW', 'V_ANOMALY_TRAINING_DATA'),
     SERIES_COLNAME => 'FACTORY_ID',
     TIMESTAMP_COLNAME => 'READING_TIMESTAMP',
-    TARGET_COLNAME => 'CO2_PPM'
+    TARGET_COLNAME => 'TEMPERATURE_C'
 )
-COMMENT = 'Forecasting model for CO2 levels — predicts next 24-48 hours';
+COMMENT = 'Forecasting model for temperature — predicts next 24-48 hours';
 
 -- Generate 24-hour forecast
-CREATE OR REPLACE TABLE CO2_FORECAST_RESULTS AS
+CREATE OR REPLACE TABLE TEMP_FORECAST_RESULTS AS
     SELECT *
     FROM TABLE(
         SENSOR_FORECAST_MODEL!FORECAST(
@@ -155,7 +157,6 @@ CREATE OR REPLACE VIEW V_CORTEX_COMPLIANCE_REPORTS AS
         dc.total_breaches,
         dc.risk_level,
         dc.breach_breakdown,
-        dc.shift_hours_detected,
         SNOWFLAKE.CORTEX.COMPLETE(
             'mistral-large2',
             CONCAT(
@@ -167,8 +168,7 @@ CREATE OR REPLACE VIEW V_CORTEX_COMPLIANCE_REPORTS AS
                 ', Compliance Score: ', dc.avg_compliance_score::VARCHAR, '/100',
                 ', Risk Level: ', dc.risk_level,
                 ', Total Breaches: ', dc.total_breaches::VARCHAR,
-                ', Breach Details: ', dc.breach_breakdown::VARCHAR,
-                ', Shift Hours Detected: ', COALESCE(dc.shift_hours_detected::VARCHAR, 'N/A')
+                ', Breach Details: ', dc.breach_breakdown::VARCHAR
             )
         ) AS ai_report_summary
     FROM ANALYTICS.FACT_DAILY_COMPLIANCE dc
@@ -266,7 +266,7 @@ CREATE OR REPLACE VIEW V_ANOMALY_EXPLANATIONS AS
                 'Include: what happened, potential causes, and recommended immediate actions. ',
                 'Anomaly data: ',
                 'Factory: ', ar.factory_id,
-                ', Metric: CO2 (ppm)',
+                ', Metric: Temperature (C)',
                 ', Is Anomaly: ', ar.is_anomaly::VARCHAR,
                 ', Percentile: ', ar.percentile::VARCHAR,
                 ', Distance from expected: ', ar.distance::VARCHAR
@@ -282,30 +282,28 @@ CREATE OR REPLACE VIEW V_ANOMALY_EXPLANATIONS AS
 CREATE OR REPLACE TABLE FEATURE_STORE (
     feature_timestamp   TIMESTAMP_NTZ,
     factory_id          VARCHAR(50),
-    -- Rolling window features
-    co2_1h_avg          FLOAT,
-    co2_1h_std          FLOAT,
-    co2_24h_avg         FLOAT,
-    co2_24h_max         FLOAT,
+    -- Rolling window features (Arduino Nano 33 BLE Sense sensors)
     temp_1h_avg         FLOAT,
     temp_1h_std         FLOAT,
     temp_24h_avg        FLOAT,
     humidity_1h_avg     FLOAT,
-    pm25_1h_avg         FLOAT,
-    pm25_24h_max        FLOAT,
+    humidity_1h_std     FLOAT,
+    humidity_24h_avg    FLOAT,
+    light_1h_avg        FLOAT,
+    light_1h_std        FLOAT,
+    pressure_1h_avg     FLOAT,
     noise_1h_avg        FLOAT,
     noise_1h_max        FLOAT,
+    vibration_1h_avg    FLOAT,
+    vibration_1h_max    FLOAT,
     -- Derived features
     heat_index          FLOAT       COMMENT 'Computed from temperature and humidity',
-    air_quality_index   FLOAT       COMMENT 'Composite AQI from CO2, PM2.5, VOC',
     breach_rate_24h     FLOAT       COMMENT 'Fraction of readings breaching any threshold',
     -- Temporal features
     hour_of_day         INTEGER,
     day_of_week         INTEGER,
     is_weekend          BOOLEAN,
-    minutes_since_shift_start FLOAT,
     -- Anomaly flags (from Cortex models)
-    co2_anomaly_flag    BOOLEAN,
     temp_anomaly_flag   BOOLEAN,
     computed_at         TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
 )

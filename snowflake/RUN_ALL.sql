@@ -515,8 +515,6 @@ CREATE OR REPLACE TABLE FACT_DAILY_COMPLIANCE (
     total_breaches      INTEGER,
     breach_breakdown    VARIANT,
     risk_level          VARCHAR(20),
-    shift_hours_detected FLOAT,
-    shift_compliance    BOOLEAN,
     computed_at         TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
 )
     CLUSTER BY (factory_id, compliance_date)
@@ -688,23 +686,21 @@ USE SCHEMA ANALYTICS;
 USE WAREHOUSE ANALYTICS_WH;
 
 CREATE OR REPLACE FUNCTION COMPUTE_COMPLIANCE_SCORE(
-    temperature_c FLOAT, humidity_pct FLOAT, co2_ppm FLOAT,
-    pm25_mg_m3 FLOAT, noise_dba FLOAT, light_lux FLOAT, vibration_ms2 FLOAT
+    temperature_c FLOAT, humidity_pct FLOAT,
+    noise_dba FLOAT, light_lux FLOAT, vibration_ms2 FLOAT
 )
 RETURNS NUMBER
 LANGUAGE SQL
-COMMENT = 'Computes 0-100 compliance score based on OSHA/ILO thresholds'
+COMMENT = 'Computes 0-100 compliance score based on OSHA/ILO thresholds for Arduino sensors'
 AS
 $$
     GREATEST(0, LEAST(100,
         100
-        - IFF(temperature_c < 20 OR temperature_c > 24.4, 10, 0)
-        - IFF(humidity_pct < 20 OR humidity_pct > 60, 5, 0)
-        - IFF(co2_ppm > 5000, 30, IFF(co2_ppm > 1000, 15, 0))
-        - IFF(pm25_mg_m3 > 5.0, 20, IFF(pm25_mg_m3 > 2.5, 10, 0))
-        - IFF(noise_dba > 90, 20, IFF(noise_dba > 85, 10, 0))
-        - IFF(light_lux < 110, 10, IFF(light_lux < 300, 5, 0))
-        - IFF(vibration_ms2 > 5.0, 15, IFF(vibration_ms2 > 2.5, 8, 0))
+        - IFF(temperature_c < 20 OR temperature_c > 24.4, 15, 0)
+        - IFF(humidity_pct < 20 OR humidity_pct > 60, 10, 0)
+        - IFF(noise_dba > 90, 25, IFF(noise_dba > 85, 15, 0))
+        - IFF(light_lux < 110, 15, IFF(light_lux < 300, 8, 0))
+        - IFF(vibration_ms2 > 5.0, 20, IFF(vibration_ms2 > 2.5, 12, 0))
     ))
 $$;
 
@@ -770,38 +766,6 @@ $$
     return 500;
 $$;
 
--- Python UDF (Snowpark): Detect shift patterns
-CREATE OR REPLACE FUNCTION DETECT_SHIFT_PATTERN(timestamps ARRAY)
-RETURNS VARIANT LANGUAGE PYTHON RUNTIME_VERSION = '3.11'
-PACKAGES = ('numpy') HANDLER = 'detect_shifts'
-COMMENT = 'Detects shift start/end and duration from timestamps'
-AS
-$$
-import numpy as np
-from datetime import datetime
-def detect_shifts(timestamps):
-    if not timestamps or len(timestamps) < 2:
-        return {"shift_detected": False, "reason": "insufficient data"}
-    hours = []
-    for ts in timestamps:
-        try:
-            dt = datetime.fromisoformat(str(ts).replace('Z','+00:00')) if isinstance(ts,str) else ts
-            hours.append(dt.hour + dt.minute/60.0)
-        except: continue
-    if len(hours) < 2:
-        return {"shift_detected": False, "reason": "parse failure"}
-    hours = np.array(hours)
-    return {
-        "shift_detected": True,
-        "estimated_start_hour": round(float(np.min(hours)),1),
-        "estimated_end_hour": round(float(np.max(hours)),1),
-        "estimated_duration_hours": round(float(np.max(hours)-np.min(hours)),1),
-        "exceeds_standard_shift": bool(np.max(hours)-np.min(hours) > 8),
-        "exceeds_extended_shift": bool(np.max(hours)-np.min(hours) > 10),
-        "reading_count": len(hours)
-    }
-$$;
-
 -- View needed by the Table UDF below (must be created first)
 CREATE OR REPLACE VIEW V_BREACH_DETAILS_FLAT AS
     SELECT hc.factory_id, hc.hour_timestamp, hc.compliance_score,
@@ -860,10 +824,6 @@ BEGIN
     SELECT 'vibration_hand_arm','m/s2','action_value',:config_json:vibration.hand_arm.action_value_8hr,'EU Directive 2002/44/EC',:config_json:vibration
     UNION ALL SELECT 'vibration_hand_arm','m/s2','exposure_limit',:config_json:vibration.hand_arm.exposure_limit_8hr,'EU Directive 2002/44/EC',:config_json:vibration;
 
-    INSERT INTO ANALYTICS.DIM_SAFETY_THRESHOLDS (metric_name, unit, threshold_type, threshold_value, standard_source, raw_config)
-    SELECT 'shift_length','hours','standard_daily_max',:config_json:shift_length.standard_daily_max,'ILO Convention No. 1',:config_json:shift_length
-    UNION ALL SELECT 'shift_length','hours','weekly_max',:config_json:shift_length.weekly_max,'ILO Convention No. 1',:config_json:shift_length;
-
     RETURN 'Safety thresholds loaded successfully';
 END;
 $$;
@@ -881,8 +841,7 @@ BEGIN
         'factory_id',factory_id,'date',compliance_date,'avg_score',avg_compliance_score,
         'min_score',min_compliance_score,'max_score',max_compliance_score,
         'breaches',total_breaches,'breach_breakdown',breach_breakdown,
-        'risk_level',risk_level,'shift_hours',shift_hours_detected,
-        'shift_compliant',shift_compliance,'generated_at',CURRENT_TIMESTAMP()
+        'risk_level',risk_level,'generated_at',CURRENT_TIMESTAMP()
     ) INTO :v_report
     FROM ANALYTICS.FACT_DAILY_COMPLIANCE
     WHERE factory_id = :p_factory_id AND compliance_date = :p_report_date;
@@ -1040,25 +999,23 @@ AS
         compliance_score, risk_level, breach_details
     )
     SELECT factory_id, sensor_node_id, DATE_TRUNC('HOUR', reading_timestamp),
-        AVG(temperature_c), AVG(humidity_pct), AVG(co2_ppm), AVG(pm25_mg_m3),
+        AVG(temperature_c), AVG(humidity_pct), NULL, NULL,
         AVG(noise_dba), AVG(light_lux), AVG(vibration_ms2),
         SUM(IFF(temperature_c<20 OR temperature_c>24.4,1,0)),
         SUM(IFF(humidity_pct<20 OR humidity_pct>60,1,0)),
-        SUM(IFF(co2_ppm>1000,1,0)), SUM(IFF(pm25_mg_m3>5.0,1,0)),
+        0, 0,
         SUM(IFF(noise_dba>85,1,0)), SUM(IFF(light_lux<300,1,0)),
         SUM(IFF(vibration_ms2>2.5,1,0)),
-        GREATEST(0,100-(SUM(IFF(temperature_c<20 OR temperature_c>24.4,1,0))*5
-            +SUM(IFF(humidity_pct<20 OR humidity_pct>60,1,0))*3
-            +SUM(IFF(co2_ppm>1000,1,0))*15+SUM(IFF(pm25_mg_m3>5.0,1,0))*20
-            +SUM(IFF(noise_dba>85,1,0))*10+SUM(IFF(light_lux<300,1,0))*5
-            +SUM(IFF(vibration_ms2>2.5,1,0))*10)),
-        CASE WHEN GREATEST(0,100-(SUM(IFF(co2_ppm>1000,1,0))*15+SUM(IFF(pm25_mg_m3>5.0,1,0))*20+SUM(IFF(noise_dba>85,1,0))*10))>=80 THEN 'LOW'
-            WHEN GREATEST(0,100-(SUM(IFF(co2_ppm>1000,1,0))*15+SUM(IFF(pm25_mg_m3>5.0,1,0))*20+SUM(IFF(noise_dba>85,1,0))*10))>=50 THEN 'MEDIUM'
-            WHEN GREATEST(0,100-(SUM(IFF(co2_ppm>1000,1,0))*15+SUM(IFF(pm25_mg_m3>5.0,1,0))*20+SUM(IFF(noise_dba>85,1,0))*10))>=20 THEN 'HIGH'
+        GREATEST(0,100-(SUM(IFF(temperature_c<20 OR temperature_c>24.4,1,0))*8
+            +SUM(IFF(humidity_pct<20 OR humidity_pct>60,1,0))*5
+            +SUM(IFF(noise_dba>85,1,0))*15+SUM(IFF(light_lux<300,1,0))*8
+            +SUM(IFF(vibration_ms2>2.5,1,0))*12)),
+        CASE WHEN GREATEST(0,100-(SUM(IFF(temperature_c<20 OR temperature_c>24.4,1,0))*8+SUM(IFF(humidity_pct<20 OR humidity_pct>60,1,0))*5+SUM(IFF(noise_dba>85,1,0))*15+SUM(IFF(light_lux<300,1,0))*8+SUM(IFF(vibration_ms2>2.5,1,0))*12))>=80 THEN 'LOW'
+            WHEN GREATEST(0,100-(SUM(IFF(temperature_c<20 OR temperature_c>24.4,1,0))*8+SUM(IFF(humidity_pct<20 OR humidity_pct>60,1,0))*5+SUM(IFF(noise_dba>85,1,0))*15+SUM(IFF(light_lux<300,1,0))*8+SUM(IFF(vibration_ms2>2.5,1,0))*12))>=50 THEN 'MEDIUM'
+            WHEN GREATEST(0,100-(SUM(IFF(temperature_c<20 OR temperature_c>24.4,1,0))*8+SUM(IFF(humidity_pct<20 OR humidity_pct>60,1,0))*5+SUM(IFF(noise_dba>85,1,0))*15+SUM(IFF(light_lux<300,1,0))*8+SUM(IFF(vibration_ms2>2.5,1,0))*12))>=20 THEN 'HIGH'
             ELSE 'CRITICAL' END,
         OBJECT_CONSTRUCT('temperature',SUM(IFF(temperature_c<20 OR temperature_c>24.4,1,0)),
             'humidity',SUM(IFF(humidity_pct<20 OR humidity_pct>60,1,0)),
-            'co2',SUM(IFF(co2_ppm>1000,1,0)),'pm25',SUM(IFF(pm25_mg_m3>5.0,1,0)),
             'noise',SUM(IFF(noise_dba>85,1,0)),'light',SUM(IFF(light_lux<300,1,0)),
             'vibration',SUM(IFF(vibration_ms2>2.5,1,0)))
     FROM STREAM_SENSOR_CLEAN WHERE is_valid = TRUE
@@ -1137,19 +1094,15 @@ CREATE OR REPLACE TASK TASK_DAILY_COMPLIANCE_ROLLUP
 AS
     INSERT INTO ANALYTICS.FACT_DAILY_COMPLIANCE (
         factory_id, compliance_date, avg_compliance_score, min_compliance_score,
-        max_compliance_score, total_breaches, breach_breakdown, risk_level,
-        shift_hours_detected, shift_compliance
+        max_compliance_score, total_breaches, breach_breakdown, risk_level
     )
     SELECT factory_id, hour_timestamp::DATE, AVG(compliance_score), MIN(compliance_score),
         MAX(compliance_score),
-        SUM(temperature_breaches+humidity_breaches+co2_breaches+pm25_breaches+noise_breaches+light_breaches+vibration_breaches),
+        SUM(temperature_breaches+humidity_breaches+noise_breaches+light_breaches+vibration_breaches),
         OBJECT_CONSTRUCT('temperature',SUM(temperature_breaches),'humidity',SUM(humidity_breaches),
-            'co2',SUM(co2_breaches),'pm25',SUM(pm25_breaches),'noise',SUM(noise_breaches),
-            'light',SUM(light_breaches),'vibration',SUM(vibration_breaches)),
+            'noise',SUM(noise_breaches),'light',SUM(light_breaches),'vibration',SUM(vibration_breaches)),
         CASE WHEN AVG(compliance_score)>=80 THEN 'LOW' WHEN AVG(compliance_score)>=50 THEN 'MEDIUM'
-            WHEN AVG(compliance_score)>=20 THEN 'HIGH' ELSE 'CRITICAL' END,
-        COUNT(DISTINCT DATE_TRUNC('HOUR',hour_timestamp)),
-        COUNT(DISTINCT DATE_TRUNC('HOUR',hour_timestamp)) <= 10
+            WHEN AVG(compliance_score)>=20 THEN 'HIGH' ELSE 'CRITICAL' END
     FROM ANALYTICS.FACT_HOURLY_COMPLIANCE
     WHERE hour_timestamp::DATE = CURRENT_DATE()-1
     GROUP BY factory_id, hour_timestamp::DATE;
@@ -1170,7 +1123,7 @@ AS
             WHEN avg_compliance_score>=75 THEN 100 ELSE 0 END,
         TO_CHAR(CURRENT_DATE()-1,'YYYY-"W"IW'), avg_compliance_score, 'PENDING',
         OBJECT_CONSTRUCT('compliance_date',compliance_date,'risk_level',risk_level,
-            'total_breaches',total_breaches,'shift_compliant',shift_compliance)
+            'total_breaches',total_breaches)
     FROM ANALYTICS.FACT_DAILY_COMPLIANCE
     WHERE compliance_date = CURRENT_DATE()-1 AND avg_compliance_score >= 75;
 
@@ -1234,7 +1187,7 @@ AS
         latest.breach_details AS current_breaches,
         AVG(hc.compliance_score) AS avg_score_24h, MIN(hc.compliance_score) AS min_score_24h,
         COUNT(DISTINCT hc.hour_timestamp) AS active_hours_24h,
-        SUM(hc.co2_breaches+hc.pm25_breaches+hc.noise_breaches) AS critical_breaches_24h,
+        SUM(hc.temperature_breaches+hc.noise_breaches+hc.vibration_breaches) AS critical_breaches_24h,
         CASE WHEN AVG(hc.compliance_score)>=95 THEN 'CERTIFICATION ELIGIBLE'
             WHEN AVG(hc.compliance_score)>=85 THEN 'INSURANCE DISCOUNT ELIGIBLE'
             WHEN AVG(hc.compliance_score)>=75 THEN 'STABLECOIN REWARD ELIGIBLE'
@@ -1327,8 +1280,8 @@ USE SCHEMA ML;
 USE WAREHOUSE CORTEX_WH;
 
 CREATE OR REPLACE VIEW V_ANOMALY_TRAINING_DATA AS
-    SELECT reading_timestamp, factory_id, temperature_c, humidity_pct, co2_ppm,
-        pm25_mg_m3, noise_dba, light_lux, vibration_ms2
+    SELECT reading_timestamp, factory_id, temperature_c, humidity_pct, pressure_kpa,
+        light_lux, noise_dba, vibration_ms2
     FROM STAGING.SENSOR_READINGS_CLEAN WHERE is_valid = TRUE ORDER BY reading_timestamp;
 
 CREATE OR REPLACE VIEW V_CONTRIBUTION_DATA AS
@@ -1467,14 +1420,14 @@ CREATE OR REPLACE VIEW V_ANOMALY_EXPLANATIONS AS
 -- ML Feature Store table
 CREATE OR REPLACE TABLE FEATURE_STORE (
     feature_timestamp TIMESTAMP_NTZ, factory_id VARCHAR(50),
-    co2_1h_avg FLOAT, co2_1h_std FLOAT, co2_24h_avg FLOAT, co2_24h_max FLOAT,
     temp_1h_avg FLOAT, temp_1h_std FLOAT, temp_24h_avg FLOAT,
-    humidity_1h_avg FLOAT, pm25_1h_avg FLOAT, pm25_24h_max FLOAT,
+    humidity_1h_avg FLOAT, humidity_1h_std FLOAT, humidity_24h_avg FLOAT,
+    light_1h_avg FLOAT, light_1h_std FLOAT, pressure_1h_avg FLOAT,
     noise_1h_avg FLOAT, noise_1h_max FLOAT,
-    heat_index FLOAT, air_quality_index FLOAT, breach_rate_24h FLOAT,
+    vibration_1h_avg FLOAT, vibration_1h_max FLOAT,
+    heat_index FLOAT, breach_rate_24h FLOAT,
     hour_of_day INTEGER, day_of_week INTEGER, is_weekend BOOLEAN,
-    minutes_since_shift_start FLOAT,
-    co2_anomaly_flag BOOLEAN, temp_anomaly_flag BOOLEAN,
+    temp_anomaly_flag BOOLEAN,
     computed_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
 )
     CLUSTER BY (factory_id, feature_timestamp)
@@ -1563,24 +1516,16 @@ CREATE OR REPLACE ALERT ALERT_SENSOR_OFFLINE
     THEN CALL SYSTEM$SEND_EMAIL('safeshift_alerts','ops@safeshift.io',
         'SENSOR OFFLINE — SafeShift','Sensor nodes not reporting for 30+ minutes.');
 
-CREATE OR REPLACE ALERT ALERT_CO2_DANGER
-    WAREHOUSE = ANALYTICS_WH SCHEDULE = '1 MINUTE'
+CREATE OR REPLACE ALERT ALERT_NOISE_DANGER
+    WAREHOUSE = ANALYTICS_WH SCHEDULE = '5 MINUTE'
     IF (EXISTS (SELECT 1 FROM STAGING.SENSOR_READINGS_CLEAN
-        WHERE co2_ppm>5000 AND reading_timestamp>=DATEADD('MINUTE',-5,CURRENT_TIMESTAMP())))
+        WHERE noise_dba>90 AND reading_timestamp>=DATEADD('MINUTE',-10,CURRENT_TIMESTAMP())))
     THEN CALL SYSTEM$SEND_EMAIL('safeshift_alerts','emergency@safeshift.io',
-        'DANGER: CO2 ABOVE PEL — SafeShift','CO2 exceeded 5000 ppm OSHA PEL.');
-
-CREATE OR REPLACE ALERT ALERT_SHIFT_VIOLATION
-    WAREHOUSE = ANALYTICS_WH SCHEDULE = '30 MINUTE'
-    IF (EXISTS (SELECT 1 FROM FACT_DAILY_COMPLIANCE
-        WHERE shift_hours_detected>10 AND compliance_date=CURRENT_DATE()))
-    THEN CALL SYSTEM$SEND_EMAIL('safeshift_alerts','compliance@safeshift.io',
-        'SHIFT VIOLATION — SafeShift','Factory exceeded ILO 10-hour shift max.');
+        'DANGER: NOISE ABOVE PEL — SafeShift','Noise exceeded 90 dBA OSHA PEL.');
 
 ALTER ALERT ALERT_CRITICAL_RISK RESUME;
 ALTER ALERT ALERT_SENSOR_OFFLINE RESUME;
-ALTER ALERT ALERT_CO2_DANGER RESUME;
-ALTER ALERT ALERT_SHIFT_VIOLATION RESUME;
+ALTER ALERT ALERT_NOISE_DANGER RESUME;
 
 -- ============================================================================
 -- DONE! Your SafeShift database is fully deployed.
