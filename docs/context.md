@@ -25,60 +25,64 @@ Safe Shift addresses this by creating an **independent, continuous, and incentiv
 
 ## System Architecture
 
-### 1. Hardware Layer (Arduino / ESP32)
+### 1. Hardware Layer (Arduino Nano 33 BLE Sense)
 
-Deployed in factories as neutral sensor nodes.
+Deployed in factories as neutral sensor nodes using the Nano 33 BLE Sense's built-in sensors.
 
-**Data collected** (non-personal only):
+**Built-in sensors used:**
 
-- Temperature & humidity
-- Air quality (CO2, PM2.5, VOCs)
-- Noise levels (decibels only, no audio)
-- Light levels
-- Machine vibration / usage patterns
-- Time-based operational patterns (shift inference)
+- Temperature & humidity (HTS221)
+- Barometric pressure (LPS22HB)
+- Ambient light / color (APDS-9960)
+- Vibration via accelerometer/gyroscope (LSM9DS1)
+- Noise levels via microphone (MP34DT05) — decibel measurement only, no speech recording during passive monitoring
+
+**Opt-in worker reporting (separate from passive monitoring):**
+
+- Workers can voluntarily submit voice reports via the onboard microphone
+- Audio is transcribed externally and analyzed by the NLP module for verbal abuse detection
+- This is explicitly opt-in — the system does not passively record or transcribe speech
 
 **Explicit exclusions:**
 
 - No cameras
-- No microphones
 - No biometrics
 - No individual tracking
+- No passive audio recording or transcription
 
 ### 2. Machine Learning Layer
 
-Safe Shift uses custom-trained ML models, not API wrappers or large language models.
+Safe Shift uses two ML components:
 
-**ML goals:**
+**A. Environmental Anomaly Detection (LSTM Autoencoder)**
 
-- Detect abnormal or unsafe environmental patterns
-- Generate risk or compliance scores
-- Identify trends over time
+An LSTM autoencoder trained on public sensor datasets learns what "normal" factory conditions look like. When real sensor readings don't match normal patterns, the reconstruction error is high — indicating something is wrong.
 
-**Model types:**
+- Input: sliding windows of temperature, humidity, pressure, and light readings
+- Output: a **risk index (0–100)** combining anomaly score (60%) with OSHA/ILO threshold violations (40%)
+- Trained on ~57,000 rows from four public datasets (SML2010, AirQualityUCI, Air-Quality-Dataset, Beijing PM2.5)
+- Thresholds sourced from OSHA and ILO standards (`config/safety_thresholds.json`)
 
-- Transformer encoders for multivariate time-series
-- LSTM / attention models
-- Temporal CNNs (baseline comparisons)
+**B. Verbal Abuse Detection (NLP — toxic-bert)**
 
-**Learning paradigm:**
+A pre-trained BERT model (`unitary/toxic-bert`) classifies transcribed text for workplace verbal abuse across six categories: toxic, severe toxic, obscene, threat, insult, and identity hate.
 
-- Unsupervised or self-supervised learning
-- Anomaly detection
-- Semi-supervised scoring using safety thresholds (e.g., OSHA / ILO standards)
+- Input: transcribed text from opt-in worker voice reports
+- Output: per-category toxicity scores, flagged categories, severity rating
+- No training required — uses a pre-trained model from HuggingFace
 
-The ML outputs **risk indicators**, not accusations or individual judgments.
+Both models output **risk indicators**, not accusations or individual judgments.
 
 ### 3. Data Sources for Training
 
-Because labeled factory abuse data is rare:
+Because labeled factory abuse data is rare, the anomaly detector trains on public environmental sensor datasets:
 
-- Public indoor air-quality datasets
-- Environmental IoT sensor datasets
-- Industrial equipment telemetry datasets (often synthetic)
-- Occupational health datasets for outcome grounding
+- **SML2010** — indoor temperature, humidity, lighting (4,137 rows, 15-min intervals)
+- **Air-Quality-Dataset** — indoor temperature, humidity (6,199 rows, ~30s intervals)
+- **AirQualityUCI** — temperature, humidity (9,471 rows, hourly)
+- **Beijing PM2.5** — temperature, barometric pressure (43,824 rows, hourly)
 
-Synthetic data generation and domain randomization are used to augment training.
+The NLP model uses a pre-trained model (toxic-bert) and requires no additional training data.
 
 ### 4. Incentive & Reward System
 
@@ -147,13 +151,33 @@ Safe Shift is explicitly framed as:
 
 **Safeguards:**
 
-- No personal data
+- No personal data in passive monitoring
 - Aggregate analysis only
 - Transparent scoring logic
 - Opt-in deployment
 - Standards-based evaluation
+- Voice reporting is opt-in only — workers choose when to submit
+- Transcribed text is analyzed and discarded, not stored
 
 Ethics and consent are treated as first-class design constraints.
+
+---
+
+## Current Status (What's Built)
+
+| Component | Status | File(s) |
+|---|---|---|
+| Safety thresholds (OSHA/ILO) | Done | `config/safety_thresholds.json` |
+| Data preprocessing pipeline | Done | `src/preprocess.py`, `src/convert_to_parquet.py` |
+| LSTM autoencoder (anomaly detection) | Trained | `src/model.py`, `src/train.py` |
+| Model artifacts saved | Done | `models/anomaly_detector.pt`, `models/scaler.pkl`, `models/threshold.json` |
+| NLP verbal abuse detector | Built (not yet tested) | `src/nlp.py` |
+| Shift length inference | Deferred | Planned as heuristic on live sensor data, not needed until hardware is connected |
+| Blockchain (Solana) | Not started | — |
+| Dashboard | Not started | — |
+| Arduino firmware | Not started | — |
+
+**Next up:** Blockchain integration (Phase 5), Dashboard (Phase 6), or Arduino firmware (Phase 7) — these are independent tracks that can be parallelized across the team.
 
 ---
 
