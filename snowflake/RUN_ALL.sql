@@ -233,6 +233,18 @@ CREATE OR REPLACE TABLE SENSOR_READINGS_RAW (
     DATA_RETENTION_TIME_IN_DAYS = 30
     COMMENT = 'Raw sensor readings from factory sensor nodes';
 
+CREATE TABLE IF NOT EXISTS ML_RISK_SCORES (
+    score_id         NUMBER AUTOINCREMENT,
+    factory_id       VARCHAR(50),
+    sensor_node_id   VARCHAR(50),
+    score_timestamp  TIMESTAMP_NTZ,
+    risk_score       FLOAT        COMMENT '0.0-1.0 from ML API',
+    confidence       FLOAT        COMMENT '0.0-1.0 from ML API',
+    created_at       TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+)
+    CLUSTER BY (factory_id, score_timestamp)
+    COMMENT = 'Real-time ML risk scores from FastAPI inference server';
+
 CREATE OR REPLACE TABLE AIR_QUALITY_RAW (
     time_str            VARCHAR(100),
     co2_ppm             FLOAT,

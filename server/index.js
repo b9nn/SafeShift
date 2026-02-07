@@ -4,11 +4,12 @@
  * Receives sensor data from Arduino devices, queries ML model,
  * and distributes Solana rewards based on safety scores.
  */
-
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const { Connection, Keypair, clusterApiUrl } = require('@solana/web3.js');
 const walletConfig = require('../config/wallet.js');
+const snowflake = require('./snowflake');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -65,48 +66,51 @@ const sensorData = new Map(); // deviceId -> latest sensor readings
 const rewardHistory = []; // reward transaction history
 
 /**
- * Fake ML Model API
- * In production, this would call your teammate's actual ML API
+ * ML Model API — calls FastAPI inference server
+ * Falls back to simple threshold scoring if ML API is unavailable
  */
-async function queryMLModel(sensorData) {
-  // TODO: Replace with actual ML API call
-  // const response = await fetch('http://ml-api:8000/predict', {
-  //   method: 'POST',
-  //   headers: { 'Content-Type': 'application/json' },
-  //   body: JSON.stringify(sensorData),
-  // });
-  // return await response.json();
+const ML_API_URL = process.env.ML_API_URL || 'http://localhost:8000';
 
-  // Fake ML model response for now
-  // Returns risk score: lower is better (< 0.3 = safe)
-  const { temperature, humidity, airQuality, noise, lighting, pressure } = sensorData;
-  
-  // Simple scoring logic (replace with actual model)
+async function queryMLModel(sensorData) {
+  try {
+    const response = await fetch(`${ML_API_URL}/predict`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        temperature: sensorData.temperature,
+        humidity: sensorData.humidity,
+        airQuality: sensorData.airQuality ?? 850,
+        noise: sensorData.noise,
+        lighting: sensorData.lighting,
+        pressure: sensorData.pressure ?? 1013.25,
+      }),
+    });
+    if (!response.ok) throw new Error(`ML API ${response.status}: ${response.statusText}`);
+    const json = await response.json();
+    return {
+      riskScore: String(json.riskScore ?? json.risk_score ?? '0.5'),
+      confidence: String(json.confidence ?? '0.8'),
+      timestamp: json.timestamp ?? Date.now(),
+    };
+  } catch (err) {
+    console.warn('⚠️  ML API unavailable, using fallback scoring:', err.message);
+    return fallbackMLScore(sensorData);
+  }
+}
+
+function fallbackMLScore(sensorData) {
+  const { temperature, humidity, airQuality, noise, lighting } = sensorData;
   let riskScore = 0;
-  
-  // Temperature risk (ideal: 68-76°F)
   if (temperature < 68 || temperature > 76) riskScore += 0.1;
   if (temperature < 65 || temperature > 80) riskScore += 0.15;
-  
-  // Humidity risk (ideal: 20-60%)
   if (humidity < 20 || humidity > 60) riskScore += 0.1;
-  
-  // Air quality risk (ideal: < 1000 ppm CO2)
-  if (airQuality > 1000) riskScore += (airQuality - 1000) / 10000;
-  
-  // Noise risk (ideal: < 85 dBA)
+  if (airQuality > 1000) riskScore += Math.min(0.3, (airQuality - 1000) / 10000);
   if (noise > 85) riskScore += (noise - 85) / 500;
-  
-  // Lighting risk (ideal: > 300 lux)
   if (lighting < 300) riskScore += (300 - lighting) / 3000;
-  
-  // Add some randomness to simulate model uncertainty
-  riskScore += (Math.random() - 0.5) * 0.05;
-  riskScore = Math.max(0, Math.min(1, riskScore)); // Clamp to 0-1
-  
+  riskScore = Math.max(0, Math.min(1, riskScore));
   return {
     riskScore: riskScore.toFixed(4),
-    confidence: (1 - riskScore * 0.3).toFixed(4), // Higher confidence for lower risk
+    confidence: (1 - riskScore * 0.3).toFixed(4),
     timestamp: Date.now(),
   };
 }
@@ -138,6 +142,15 @@ app.post('/api/sensor-data', async (req, res) => {
 
     console.log(`📊 Received sensor data from device ${deviceId} (company ${companyId})`);
 
+    // Snowflake: insert raw reading (fire-and-forget)
+    snowflake.insertRawReading({
+      factoryId: companyId,
+      sensorNodeId: deviceId,
+      timestamp: timestamp || Date.now(),
+      metrics: { temperature, humidity, airQuality, noise, lighting, pressure: pressure || null },
+      rawPayload: req.body,
+    }).catch(() => {});
+
     // Store latest sensor data
     sensorData.set(deviceId, {
       deviceId,
@@ -165,6 +178,15 @@ app.post('/api/sensor-data', async (req, res) => {
 
     const riskScore = parseFloat(modelResponse.riskScore);
     const isSafe = riskScore < 0.3; // Threshold: < 0.3 = safe
+
+    // Snowflake: insert ML risk score (fire-and-forget)
+    snowflake.insertMLRiskScore({
+      factoryId: companyId,
+      sensorNodeId: deviceId,
+      timestamp: timestamp || Date.now(),
+      riskScore: modelResponse.riskScore,
+      confidence: modelResponse.confidence,
+    }).catch(() => {});
 
     console.log(`🤖 ML Model Response: riskScore=${riskScore.toFixed(4)}, isSafe=${isSafe}`);
 
@@ -212,6 +234,14 @@ app.post('/api/sensor-data', async (req, res) => {
             });
 
             rewardSent = true;
+            // Snowflake: insert reward payout (fire-and-forget)
+            snowflake.insertRewardPayout({
+              factoryId: companyId,
+              solanaTxHash: transactionSignature,
+              rewardAmountSOL,
+              riskScore,
+            }).catch(() => {});
+
             console.log(`💰 Reward sent! ${rewardAmount} SOL to ${company.walletAddress}`);
             console.log(`   Transaction: ${transactionSignature}`);
           } catch (error) {
