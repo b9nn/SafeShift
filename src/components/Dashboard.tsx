@@ -7,6 +7,7 @@ import './Dashboard.css';
 import RewardPanel from './RewardPanel';
 import SafetyMonitor from './SafetyMonitor';
 import AutomatedRewardsControl from './AutomatedRewardsControl';
+import SessionAnalysis from './SessionAnalysis';
 
 interface DashboardProps {
   selectedCompany: Company | null;
@@ -70,6 +71,10 @@ const Dashboard = ({ selectedCompany }: DashboardProps) => {
         <div className="dashboard-section">
           <RewardPanel company={selectedCompany} />
         </div>
+      </div>
+      
+      <div className="dashboard-section full-width">
+        <SessionAnalysis company={selectedCompany} />
       </div>
     </div>
   );

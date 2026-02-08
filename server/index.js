@@ -352,6 +352,43 @@ app.get('/api/rewards', (req, res) => {
 });
 
 /**
+ * GET /api/session-analysis/:companyId
+ * Get AI-powered session analysis with health warnings
+ */
+app.get('/api/session-analysis/:companyId', async (req, res) => {
+  try {
+    const { companyId } = req.params;
+    const hoursBack = parseInt(req.query.hours) || 24;
+
+    if (!companyId) {
+      return res.status(400).json({ error: 'Missing companyId' });
+    }
+
+    // Check if company exists
+    if (!companies.has(companyId)) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+
+    console.log(`📊 Generating session analysis for ${companyId} (last ${hoursBack} hours)`);
+
+    const analysis = await snowflake.getSessionAnalysis(companyId, hoursBack);
+
+    res.json({
+      success: true,
+      companyId,
+      analysis,
+      generatedAt: Date.now(),
+    });
+  } catch (error) {
+    console.error('Error generating session analysis:', error);
+    res.status(500).json({
+      error: 'Failed to generate session analysis',
+      message: error.message,
+    });
+  }
+});
+
+/**
  * GET /api/health
  * Health check endpoint
  */
