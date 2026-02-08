@@ -230,7 +230,10 @@ function SolProjections({ values, onClose }: { values: number[]; onClose: () => 
 // ---------------------------------------------------------------------------
 // LiveFeed component
 // ---------------------------------------------------------------------------
-export default function LiveFeed() {
+export { METRICS, computeRiskScore, computeReward, getStatus };
+export type { MetricConfig };
+
+export default function LiveFeed({ onEndSession }: { onEndSession?: (finalValues: number[]) => void }) {
   const [values, setValues] = useState<number[]>(
     METRICS.map((m) => randomInRange(m.min, m.max, m.decimals))
   );
@@ -287,6 +290,9 @@ export default function LiveFeed() {
 
         <button className="sol-projections-btn" onClick={() => setShowProjections(true)}>
           SOL Projections
+        </button>
+        <button className="end-session-btn" onClick={() => onEndSession?.(values)}>
+          End Session
         </button>
       </div>
 

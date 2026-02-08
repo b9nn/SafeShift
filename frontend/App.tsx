@@ -1,15 +1,18 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import './App.css'
 import SplashPage from './components/SplashPage'
 import WalletPage from './components/WalletPage'
 import CompanyThresholds from './components/CompanyThresholds'
 import LiveFeed from './components/LiveFeed'
+import InsightsPage from './components/InsightsPage'
+import SolanaResults from './components/SolanaResults'
 import { SolanaProvider } from './context/SolanaContext'
 
-type AppView = 'splash' | 'wallet' | 'thresholds' | 'monitoring';
+type AppView = 'splash' | 'wallet' | 'thresholds' | 'monitoring' | 'insights' | 'solana-results';
 
 const AppContent = () => {
   const [view, setView] = useState<AppView>('splash');
+  const finalValuesRef = useRef<number[]>([75, 24, 45, 1013, 42]);
 
   return (
     <>
@@ -28,7 +31,16 @@ const AppContent = () => {
         <CompanyThresholds onStart={() => setView('monitoring')} />
       )}
       {view === 'monitoring' && (
-        <LiveFeed />
+        <LiveFeed onEndSession={(vals) => { finalValuesRef.current = vals; setView('insights'); }} />
+      )}
+      {view === 'insights' && (
+        <InsightsPage
+          finalValues={finalValuesRef.current}
+          onViewSolana={() => setView('solana-results')}
+        />
+      )}
+      {view === 'solana-results' && (
+        <SolanaResults finalValues={finalValuesRef.current} />
       )}
     </>
   );

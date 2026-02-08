@@ -1,0 +1,217 @@
+/* ============================================================
+   SolanaResults
+   ============================================================ */
+.solres-page {
+  position: relative;
+  width: 100vw;
+  min-height: 100vh;
+  background: #f5f5f7;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow-y: auto;
+  padding: 2rem 1rem 4rem;
+}
+
+.solres-content {
+  position: relative;
+  z-index: 1;
+  max-width: 560px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.solres-heading {
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: #1a1a2e;
+  margin: 2.5rem 0 0.3rem;
+}
+
+.solres-subtitle {
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: 0.95rem;
+  color: #999;
+  margin: 0 0 1.8rem;
+}
+
+/* ---------- Status banner ---------- */
+.solres-status-banner {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  padding: 1.1rem 1.4rem;
+  border-radius: 14px;
+  margin-bottom: 1.5rem;
+}
+
+.solres-status-banner.success {
+  background: rgba(46, 204, 113, 0.08);
+  border: 1px solid rgba(46, 204, 113, 0.25);
+}
+
+.solres-status-banner.fail {
+  background: rgba(231, 76, 60, 0.08);
+  border: 1px solid rgba(231, 76, 60, 0.25);
+}
+
+.solres-status-icon {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.solres-status-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.solres-status-text strong {
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: 1rem;
+  color: #1a1a2e;
+}
+
+.solres-status-text span {
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: 0.82rem;
+  color: #777;
+}
+
+/* ---------- Cards ---------- */
+.solres-card {
+  width: 100%;
+  background: #fff;
+  border-radius: 14px;
+  padding: 1.2rem 1.5rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+}
+
+.solres-card-title {
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #aaa;
+  margin: 0 0 0.8rem;
+}
+
+.solres-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.solres-row:last-child {
+  border-bottom: none;
+}
+
+.solres-label {
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: 0.85rem;
+  color: #777;
+}
+
+.solres-value {
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #1a1a2e;
+}
+
+.solres-value.mono {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.8rem;
+  color: #555;
+}
+
+.solres-value.highlight {
+  font-size: 1.05rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, #9945FF, #14F195);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.solres-value.green { color: #2ecc71; }
+.solres-value.red { color: #e74c3c; }
+
+.solres-value.pill {
+  padding: 0.2rem 0.7rem;
+  border-radius: 50px;
+  font-size: 0.78rem;
+}
+
+.solres-value.pill.confirmed {
+  background: rgba(46, 204, 113, 0.1);
+  color: #2ecc71;
+}
+
+.solres-value.pill.skipped {
+  background: rgba(231, 76, 60, 0.1);
+  color: #e74c3c;
+}
+
+/* ---------- Formula footer ---------- */
+.solres-formula {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.formula-label {
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #bbb;
+}
+
+.solres-formula code {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.82rem;
+  color: #9945FF;
+  background: rgba(153, 69, 255, 0.06);
+  padding: 0.4rem 0.9rem;
+  border-radius: 8px;
+}
+
+.formula-note {
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: 0.72rem;
+  color: #bbb;
+}
+
+/* ---------- Collect button ---------- */
+.collect-btn {
+  margin-top: 2rem;
+  padding: 1.1rem 4rem;
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #fff;
+  background: linear-gradient(135deg, #9945FF 0%, #14F195 100%);
+  border: none;
+  border-radius: 50px;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  box-shadow: 0 6px 24px rgba(153, 69, 255, 0.35);
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.collect-btn:hover {
+  transform: translateY(-3px) scale(1.04);
+  box-shadow: 0 10px 36px rgba(153, 69, 255, 0.5);
+}

@@ -292,6 +292,28 @@
   line-height: 1.5;
 }
 
+/* ---------- End Session button ---------- */
+.end-session-btn {
+  margin-top: 1rem;
+  padding: 1.1rem 4rem;
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #fff;
+  background: #e74c3c;
+  border: none;
+  border-radius: 50px;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  box-shadow: 0 4px 16px rgba(231, 76, 60, 0.3);
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.end-session-btn:hover {
+  transform: translateY(-2px) scale(1.03);
+  box-shadow: 0 8px 26px rgba(231, 76, 60, 0.45);
+}
+
 /* ---------- Responsive ---------- */
 @media (max-width: 900px) {
   .livefeed-grid {
