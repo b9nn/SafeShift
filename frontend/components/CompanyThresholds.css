@@ -1,10 +1,10 @@
 .thresholds-page {
   position: relative;
   width: 100vw;
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
-  flex-direction: column;
   align-items: center;
+  justify-content: center;
   overflow: hidden;
   background: #f5f5f7;
 }
@@ -28,10 +28,9 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  margin-top: 4rem;
-  padding: 0 2rem 3rem;
+  padding: 0 2rem;
   width: 100%;
-  max-width: 900px;
+  max-width: 1200px;
 }
 
 .thresholds-heading {
@@ -43,10 +42,10 @@
   text-align: center;
 }
 
-/* ---------- Grid layout: 3 on top, 2 on bottom centered ---------- */
+/* ---------- Single horizontal row ---------- */
 .thresholds-grid {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: center;
   gap: 1.5rem;
   width: 100%;
@@ -54,8 +53,10 @@
 
 /* ---------- Individual metric card ---------- */
 .metric-card {
-  width: 220px;
-  height: 200px;
+  flex: 1 1 0;
+  min-width: 180px;
+  max-width: 260px;
+  height: 220px;
   background: #1a1a2e;
   border-radius: 16px;
   display: flex;
@@ -93,6 +94,102 @@
   font-size: 1rem;
   font-weight: 400;
   color: rgba(255, 255, 255, 0.55);
+}
+
+/* ---------- Reward info ---------- */
+.reward-info {
+  margin-top: 2rem;
+  text-align: center;
+}
+
+.reward-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 14px;
+  padding: 1.5rem 3rem;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+}
+
+.reward-label {
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #888;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.reward-amount {
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: #1a1a2e;
+  letter-spacing: -0.01em;
+}
+
+.reward-steps {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin: 0.2rem 0;
+}
+
+.step {
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #555;
+  background: rgba(26, 26, 46, 0.06);
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+}
+
+.step-arrow {
+  font-size: 0.85rem;
+  color: #aaa;
+  font-weight: 600;
+}
+
+.reward-detail {
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: #999;
+  text-align: center;
+  line-height: 1.4;
+}
+
+/* ---------- Start monitoring button ---------- */
+.start-monitoring-btn {
+  margin-top: 1.5rem;
+  padding: 1rem 3rem;
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #1a1a2e 0%, #2d2d5e 100%);
+  border: none;
+  border-radius: 50px;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  box-shadow: 0 4px 20px rgba(26, 26, 46, 0.25);
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+.start-monitoring-btn:hover {
+  transform: translateY(-2px) scale(1.03);
+  box-shadow: 0 8px 30px rgba(26, 26, 46, 0.35);
+}
+
+.start-monitoring-btn:active {
+  transform: translateY(0) scale(0.98);
 }
 
 /* ---------- Responsive ---------- */

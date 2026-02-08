@@ -5,7 +5,7 @@ import WalletPage from './components/WalletPage'
 import CompanyThresholds from './components/CompanyThresholds'
 import { SolanaProvider } from './context/SolanaContext'
 
-type AppView = 'splash' | 'wallet' | 'thresholds';
+type AppView = 'splash' | 'wallet' | 'thresholds' | 'monitoring';
 
 const AppContent = () => {
   const [view, setView] = useState<AppView>('splash');
@@ -24,7 +24,12 @@ const AppContent = () => {
         <WalletPage onContinue={() => setView('thresholds')} />
       )}
       {view === 'thresholds' && (
-        <CompanyThresholds />
+        <CompanyThresholds onStart={() => setView('monitoring')} />
+      )}
+      {view === 'monitoring' && (
+        <div style={{ width: '100vw', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f7', color: '#1a1a2e', fontFamily: 'Inter, system-ui, sans-serif', fontSize: '1.5rem', fontWeight: 600 }}>
+          Live Monitoring — coming soon
+        </div>
       )}
     </>
   );
