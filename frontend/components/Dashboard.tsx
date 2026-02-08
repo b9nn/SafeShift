@@ -7,6 +7,8 @@ import './Dashboard.css';
 import RewardPanel from './RewardPanel';
 import SafetyMonitor from './SafetyMonitor';
 import AutomatedRewardsControl from './AutomatedRewardsControl';
+import NLPWarnings from './NLPWarnings';
+import LiveMicInput from './LiveMicInput';
 
 interface DashboardProps {
   selectedCompany: Company | null;
@@ -70,6 +72,14 @@ const Dashboard = ({ selectedCompany }: DashboardProps) => {
         <div className="dashboard-section">
           <RewardPanel company={selectedCompany} />
         </div>
+      </div>
+      
+      <div className="dashboard-section full-width">
+        <LiveMicInput company={selectedCompany} />
+      </div>
+      
+      <div className="dashboard-section full-width">
+        <NLPWarnings company={selectedCompany} />
       </div>
     </div>
   );

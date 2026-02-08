@@ -209,10 +209,64 @@ function getWeekNumber(d) {
   return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
 }
 
+/**
+ * Get recent NLP abuse warnings for a company
+ */
+async function getNLPWarnings(companyId, limit = 10) {
+  if (!isEnabled()) {
+    return [];
+  }
+  
+  const conn = await getConnection();
+  if (!conn) {
+    return [];
+  }
+
+  const sql = `
+    SELECT 
+      created_at as report_timestamp,
+      is_abusive,
+      severity,
+      flagged_categories
+    FROM GOVERNANCE.ABUSE_REPORTS
+    WHERE factory_id = ?
+      AND is_abusive = TRUE
+    ORDER BY created_at DESC
+    LIMIT ?
+  `;
+
+  return new Promise((resolve, reject) => {
+    conn.execute({
+      sqlText: sql,
+      binds: [companyId, limit],
+      complete: (err, stmt, rows) => {
+        if (err) {
+          console.warn('Snowflake getNLPWarnings failed:', err.message);
+          resolve([]); // Return empty array on error
+          return;
+        }
+
+        const warnings = rows.map(row => {
+          const categories = row.FLAGGED_CATEGORIES ? row.FLAGGED_CATEGORIES.split(',') : [];
+          return {
+            timestamp: new Date(row.REPORT_TIMESTAMP).getTime(),
+            severity: row.SEVERITY > 0.5 ? 'high' : 'medium',
+            categories: categories,
+            message: `Verbal abuse detected: ${categories.join(', ')}`,
+          };
+        });
+
+        resolve(warnings);
+      },
+    });
+  }).catch(() => []);
+}
+
 module.exports = {
   isEnabled,
   insertRawReading,
   insertMLRiskScore,
   insertRewardPayout,
   insertAbuseReport,
+  getNLPWarnings,
 };
