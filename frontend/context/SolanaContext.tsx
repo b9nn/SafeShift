@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { Connection, Keypair, clusterApiUrl } from '@solana/web3.js';
 import { SolanaRewardService } from '../services/solanaRewardService';
 import walletConfig from '../../config/wallet.ts';
+// Note: path is ../../config because frontend/ is one level deep from project root
 
 interface SolanaContextType {
   connection: Connection | null;

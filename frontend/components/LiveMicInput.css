@@ -1,0 +1,266 @@
+.live-mic-input {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin-top: 20px;
+}
+
+.mic-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.mic-header h3 {
+  margin: 0;
+  color: #333;
+  font-size: 1.3rem;
+}
+
+.mic-status {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.status-recording {
+  color: #d32f2f;
+  animation: pulse 2s infinite;
+}
+
+.status-idle {
+  color: #666;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.mic-error {
+  background: #ffebee;
+  border: 2px solid #d32f2f;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.mic-error p {
+  margin: 0;
+  color: #c62828;
+  font-size: 0.9rem;
+}
+
+.mic-controls {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.btn-start,
+.btn-stop {
+  padding: 12px 24px;
+  font-size: 1rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-start {
+  background: #4CAF50;
+  color: white;
+}
+
+.btn-start:hover {
+  background: #45a049;
+  transform: scale(1.05);
+}
+
+.btn-stop {
+  background: #d32f2f;
+  color: white;
+}
+
+.btn-stop:hover {
+  background: #b71c1c;
+  transform: scale(1.05);
+}
+
+.transcript-section {
+  background: #f5f5f5;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.transcript-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.transcript-header h4 {
+  margin: 0;
+  color: #333;
+  font-size: 1rem;
+}
+
+.analyzing-badge {
+  background: #fff3e0;
+  color: #e65100;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  animation: pulse 1.5s infinite;
+}
+
+.transcript-text {
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 12px;
+  min-height: 60px;
+  max-height: 200px;
+  overflow-y: auto;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: #333;
+  margin-bottom: 12px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.btn-analyze {
+  padding: 8px 16px;
+  background: #2196F3;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: background 0.2s;
+}
+
+.btn-analyze:hover {
+  background: #1976D2;
+}
+
+.warning-display {
+  background: white;
+  border-radius: 8px;
+  padding: 16px;
+  border-left: 4px solid #ff9800;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  animation: slideIn 0.3s ease-out;
+}
+
+.warning-display.high {
+  border-left-color: #d32f2f;
+  background: #ffebee;
+}
+
+.warning-display.medium {
+  border-left-color: #ff9800;
+  background: #fff3e0;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.warning-display .warning-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.warning-display h4 {
+  margin: 0;
+  color: #d32f2f;
+  font-size: 1.1rem;
+}
+
+.severity-badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.severity-badge.high {
+  background: #ffebee;
+  color: #c62828;
+  border: 1px solid #d32f2f;
+}
+
+.severity-badge.medium {
+  background: #fff3e0;
+  color: #e65100;
+  border: 1px solid #ff9800;
+}
+
+.warning-text {
+  margin-bottom: 12px;
+}
+
+.warning-text p {
+  margin: 8px 0;
+  color: #333;
+  line-height: 1.5;
+}
+
+.warning-text strong {
+  color: #555;
+}
+
+.warning-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.category-tag {
+  background: #f5f5f5;
+  border: 1px solid #ddd;
+  border-radius: 16px;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  color: #555;
+  text-transform: capitalize;
+}
+
+.mic-instructions {
+  text-align: center;
+  padding: 20px;
+  color: #666;
+}
+
+.mic-instructions p {
+  margin: 8px 0;
+}
+
+.mic-instructions .hint {
+  font-size: 0.85rem;
+  color: #999;
+  font-style: italic;
+}

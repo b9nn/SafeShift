@@ -415,6 +415,15 @@ app.post('/api/report-abuse', async (req, res) => {
       flaggedCategories: analysis.flagged_categories,
     }).catch(() => {});
 
+    // If abusive, create a warning for frontend
+    const warning = analysis.is_abusive ? {
+      type: 'nlp_abuse',
+      severity: parseFloat(analysis.severity) > 0.5 ? 'high' : 'medium',
+      message: `Verbal abuse detected: ${analysis.flagged_categories.join(', ')}`,
+      categories: analysis.flagged_categories,
+      timestamp: Date.now(),
+    } : null;
+
     // Return analysis (without the original text)
     res.json({
       success: true,
@@ -424,6 +433,7 @@ app.post('/api/report-abuse', async (req, res) => {
         flagged_categories: analysis.flagged_categories,
         scores: analysis.scores,
       },
+      warning, // Include warning if abusive
     });
   } catch (error) {
     console.error('Error analyzing text:', error.message);
@@ -451,14 +461,13 @@ app.post('/api/report-abuse', async (req, res) => {
 app.get('/api/session-analysis/:companyId', async (req, res) => {
   try {
     const { companyId } = req.params;
-    const useAllData = req.query.all !== 'false'; // Default to true
+    const useAllData = req.query.all !== 'false';
     const hoursBack = parseInt(req.query.hours) || 24;
 
     if (!companyId) {
       return res.status(400).json({ error: 'Missing companyId' });
     }
 
-    // Check if company exists
     if (!companies.has(companyId)) {
       return res.status(404).json({ error: 'Company not found' });
     }
@@ -478,6 +487,36 @@ app.get('/api/session-analysis/:companyId', async (req, res) => {
     console.error('Error generating session analysis:', error);
     res.status(500).json({
       error: 'Failed to generate session analysis',
+      message: error.message,
+    });
+  }
+});
+
+/**
+ * GET /api/nlp-warnings/:companyId
+ * Get recent NLP abuse warnings for a company
+ */
+app.get('/api/nlp-warnings/:companyId', async (req, res) => {
+  try {
+    const { companyId } = req.params;
+    const limit = parseInt(req.query.limit) || 10;
+
+    if (!companyId) {
+      return res.status(400).json({ error: 'Missing companyId' });
+    }
+
+    const warnings = await snowflake.getNLPWarnings(companyId, limit);
+
+    res.json({
+      success: true,
+      companyId,
+      warnings,
+      count: warnings.length,
+    });
+  } catch (error) {
+    console.error('Error fetching NLP warnings:', error);
+    res.status(500).json({
+      error: 'Failed to fetch NLP warnings',
       message: error.message,
     });
   }

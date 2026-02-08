@@ -23,13 +23,6 @@
 - [x] Aggregate abuse stats for reporting periods
 - [ ] Test with sample transcriptions
 
-## Phase 4: Shift Length Inference (Deferred)
-
-Deferred until hardware is connected. Requires live sensor data (light, vibration, noise patterns) to detect factory on/off cycles. Will be heuristic-based, not ML.
-
-- [ ] Use operational signals (noise, vibration, light patterns) to detect shift start/end times
-- [ ] Compare inferred shift lengths against ILO limits (8 hr/day, 48 hr/week)
-- [ ] Flag factories running suspected excessive shifts
 
 ## Phase 5: Blockchain — Reporting & Rewards (Solana)
 
@@ -41,7 +34,7 @@ Deferred until hardware is connected. Requires live sensor data (light, vibratio
 ## Phase 6: Dashboard (Blackboard.io)
 
 - [ ] Build frontend showing per-factory risk scores and historical trends
-- [ ] Display threshold violations, anomaly alerts, and shift length flags
+- [ ] Display threshold violations and anomaly alerts
 - [ ] Show blockchain-verified audit log and reward history
 - [ ] Add views for different users (regulator, auditor, factory owner)
 

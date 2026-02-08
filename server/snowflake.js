@@ -211,34 +211,23 @@ function getWeekNumber(d) {
 
 /**
  * Get session data and generate AI health warnings using Snowflake Cortex
- * 
- * WHAT IT DOES:
- * 1. Queries ALL sensor readings from Snowflake database for the company
- * 2. Analyzes every reading to find metrics outside safe ranges
- * 3. Calculates violation rates and average values for each metric
- * 4. Uses Snowflake Cortex AI (COMPLETE function) to generate specific health warnings
- * 5. Returns warnings explaining health risks (e.g., "high temperature can lead to heart disease")
- * 
- * This provides a comprehensive end-of-session health analysis using the FULL database.
  */
 async function getSessionAnalysis(companyId, useAllData = true, hoursBack = null) {
   if (!isEnabled()) {
     return { warnings: [], summary: 'Snowflake not configured' };
   }
-  
+
   const conn = await getConnection();
   if (!conn) {
     return { warnings: [], summary: 'Snowflake connection failed' };
   }
 
-  // Build SQL query - use ALL data if useAllData is true, otherwise filter by time
   let sql;
   let binds;
-  
+
   if (useAllData) {
-    // Query ALL data from database (no time limit)
     sql = `
-      SELECT 
+      SELECT
         reading_timestamp,
         temperature_f,
         humidity_pct,
@@ -252,10 +241,9 @@ async function getSessionAnalysis(companyId, useAllData = true, hoursBack = null
     `;
     binds = [companyId];
   } else {
-    // Query data from specific time period
     const startTime = new Date(Date.now() - (hoursBack || 24) * 60 * 60 * 1000).toISOString();
     sql = `
-      SELECT 
+      SELECT
         reading_timestamp,
         temperature_f,
         humidity_pct,
@@ -275,7 +263,7 @@ async function getSessionAnalysis(companyId, useAllData = true, hoursBack = null
   return new Promise((resolve, reject) => {
     conn.execute({
       sqlText: sql,
-      binds: [companyId, startTime],
+      binds,
       complete: async (err, stmt, rows) => {
         if (err) {
           console.warn('Snowflake getSessionAnalysis failed:', err.message);
@@ -284,27 +272,25 @@ async function getSessionAnalysis(companyId, useAllData = true, hoursBack = null
         }
 
         if (rows.length === 0) {
-          resolve({ 
-            warnings: [], 
+          resolve({
+            warnings: [],
             summary: 'No data found in database for this company',
             totalReadings: 0
           });
           return;
         }
 
-        // Get date range of data
         const firstReading = rows[rows.length - 1];
         const lastReading = rows[0];
-        const dateRange = useAllData 
+        const dateRange = useAllData
           ? `from ${new Date(firstReading.READING_TIMESTAMP).toLocaleDateString()} to ${new Date(lastReading.READING_TIMESTAMP).toLocaleDateString()}`
           : `last ${hoursBack || 24} hours`;
 
-        // Analyze ALL data to find bad scores
         const badMetrics = analyzeBadScores(rows);
-        
+
         if (badMetrics.length === 0) {
-          resolve({ 
-            warnings: [], 
+          resolve({
+            warnings: [],
             summary: `All metrics within safe ranges! Great job maintaining safe working conditions.`,
             totalReadings: rows.length,
             dateRange: useAllData ? dateRange : undefined,
@@ -313,9 +299,8 @@ async function getSessionAnalysis(companyId, useAllData = true, hoursBack = null
           return;
         }
 
-        // Generate AI warnings using Cortex for each bad metric
         const warnings = await generateCortexWarnings(conn, badMetrics, companyId);
-        
+
         resolve({
           warnings,
           summary: `Analyzed ${rows.length} readings ${dateRange}. Found ${badMetrics.length} metric(s) with safety concerns.`,
@@ -329,22 +314,16 @@ async function getSessionAnalysis(companyId, useAllData = true, hoursBack = null
   }).catch(() => ({ warnings: [], summary: 'Error analyzing session data' }));
 }
 
-/**
- * Analyze sensor readings to identify bad scores
- */
 function analyzeBadScores(readings) {
   const badMetrics = [];
-  
-  // Safety thresholds (from config/safety_thresholds.json)
   const thresholds = {
-    temperature: { min: 68, max: 76, idealMin: 65, idealMax: 80 },
+    temperature: { min: 68, max: 76 },
     humidity: { min: 20, max: 60 },
-    airQuality: { max: 1000 }, // CO2 ppm
+    airQuality: { max: 1000 },
     noise: { max: 85 },
     lighting: { min: 300 },
   };
 
-  // Calculate averages and find violations
   const stats = {
     temperature: { values: [], violations: 0 },
     humidity: { values: [], violations: 0 },
@@ -356,211 +335,161 @@ function analyzeBadScores(readings) {
   readings.forEach(reading => {
     if (reading.TEMPERATURE_F != null) {
       stats.temperature.values.push(reading.TEMPERATURE_F);
-      if (reading.TEMPERATURE_F < thresholds.temperature.min || reading.TEMPERATURE_F > thresholds.temperature.max) {
-        stats.temperature.violations++;
-      }
+      if (reading.TEMPERATURE_F < thresholds.temperature.min || reading.TEMPERATURE_F > thresholds.temperature.max) stats.temperature.violations++;
     }
     if (reading.HUMIDITY_PCT != null) {
       stats.humidity.values.push(reading.HUMIDITY_PCT);
-      if (reading.HUMIDITY_PCT < thresholds.humidity.min || reading.HUMIDITY_PCT > thresholds.humidity.max) {
-        stats.humidity.violations++;
-      }
+      if (reading.HUMIDITY_PCT < thresholds.humidity.min || reading.HUMIDITY_PCT > thresholds.humidity.max) stats.humidity.violations++;
     }
     if (reading.CO2_PPM != null) {
       stats.airQuality.values.push(reading.CO2_PPM);
-      if (reading.CO2_PPM > thresholds.airQuality.max) {
-        stats.airQuality.violations++;
-      }
+      if (reading.CO2_PPM > thresholds.airQuality.max) stats.airQuality.violations++;
     }
     if (reading.NOISE_DBA != null) {
       stats.noise.values.push(reading.NOISE_DBA);
-      if (reading.NOISE_DBA > thresholds.noise.max) {
-        stats.noise.violations++;
-      }
+      if (reading.NOISE_DBA > thresholds.noise.max) stats.noise.violations++;
     }
     if (reading.LIGHT_LUX != null) {
       stats.lighting.values.push(reading.LIGHT_LUX);
-      if (reading.LIGHT_LUX < thresholds.lighting.min) {
-        stats.lighting.violations++;
-      }
+      if (reading.LIGHT_LUX < thresholds.lighting.min) stats.lighting.violations++;
     }
   });
 
-  // Identify metrics with significant violations (>10% of readings)
   const violationThreshold = readings.length * 0.1;
+  const metricDefs = [
+    { key: 'temperature', unit: '°F', threshold: `${thresholds.temperature.min}-${thresholds.temperature.max}°F` },
+    { key: 'humidity', unit: '%', threshold: `${thresholds.humidity.min}-${thresholds.humidity.max}%` },
+    { key: 'airQuality', unit: 'ppm CO₂', threshold: `<${thresholds.airQuality.max} ppm` },
+    { key: 'noise', unit: 'dBA', threshold: `<${thresholds.noise.max} dBA` },
+    { key: 'lighting', unit: 'lux', threshold: `>${thresholds.lighting.min} lux` },
+  ];
 
-  if (stats.temperature.violations > violationThreshold) {
-    const avg = stats.temperature.values.reduce((a, b) => a + b, 0) / stats.temperature.values.length;
-    badMetrics.push({
-      metric: 'temperature',
-      value: avg,
-      unit: '°F',
-      threshold: `${thresholds.temperature.min}-${thresholds.temperature.max}°F`,
-      violationRate: (stats.temperature.violations / readings.length * 100).toFixed(1),
-      isHigh: avg > thresholds.temperature.max,
-      isLow: avg < thresholds.temperature.min,
-    });
-  }
-
-  if (stats.humidity.violations > violationThreshold) {
-    const avg = stats.humidity.values.reduce((a, b) => a + b, 0) / stats.humidity.values.length;
-    badMetrics.push({
-      metric: 'humidity',
-      value: avg,
-      unit: '%',
-      threshold: `${thresholds.humidity.min}-${thresholds.humidity.max}%`,
-      violationRate: (stats.humidity.violations / readings.length * 100).toFixed(1),
-      isHigh: avg > thresholds.humidity.max,
-      isLow: avg < thresholds.humidity.min,
-    });
-  }
-
-  if (stats.airQuality.violations > violationThreshold) {
-    const avg = stats.airQuality.values.reduce((a, b) => a + b, 0) / stats.airQuality.values.length;
-    badMetrics.push({
-      metric: 'airQuality',
-      value: avg,
-      unit: 'ppm CO₂',
-      threshold: `<${thresholds.airQuality.max} ppm`,
-      violationRate: (stats.airQuality.violations / readings.length * 100).toFixed(1),
-      isHigh: true,
-    });
-  }
-
-  if (stats.noise.violations > violationThreshold) {
-    const avg = stats.noise.values.reduce((a, b) => a + b, 0) / stats.noise.values.length;
-    badMetrics.push({
-      metric: 'noise',
-      value: avg,
-      unit: 'dBA',
-      threshold: `<${thresholds.noise.max} dBA`,
-      violationRate: (stats.noise.violations / readings.length * 100).toFixed(1),
-      isHigh: true,
-    });
-  }
-
-  if (stats.lighting.violations > violationThreshold) {
-    const avg = stats.lighting.values.reduce((a, b) => a + b, 0) / stats.lighting.values.length;
-    badMetrics.push({
-      metric: 'lighting',
-      value: avg,
-      unit: 'lux',
-      threshold: `>${thresholds.lighting.min} lux`,
-      violationRate: (stats.lighting.violations / readings.length * 100).toFixed(1),
-      isLow: true,
-    });
+  for (const def of metricDefs) {
+    const s = stats[def.key];
+    if (s.violations > violationThreshold && s.values.length > 0) {
+      const avg = s.values.reduce((a, b) => a + b, 0) / s.values.length;
+      const t = thresholds[def.key];
+      badMetrics.push({
+        metric: def.key,
+        value: avg,
+        unit: def.unit,
+        threshold: def.threshold,
+        violationRate: (s.violations / readings.length * 100).toFixed(1),
+        isHigh: t.max != null && avg > t.max,
+        isLow: t.min != null && avg < t.min,
+      });
+    }
   }
 
   return badMetrics;
 }
 
-/**
- * Generate AI health warnings using Snowflake Cortex COMPLETE
- */
 async function generateCortexWarnings(conn, badMetrics, companyId) {
   const warnings = [];
 
   for (const metric of badMetrics) {
     const metricName = metric.metric === 'airQuality' ? 'air quality (CO2 levels)' : metric.metric;
-    const condition = metric.isHigh 
+    const condition = metric.isHigh
       ? `very high (${metric.value.toFixed(1)} ${metric.unit}, safe range: ${metric.threshold})`
       : `very low (${metric.value.toFixed(1)} ${metric.unit}, safe range: ${metric.threshold})`;
-    
-    const prompt = `You are a factory safety and occupational health expert. 
-A factory monitoring system detected that ${metricName} was ${condition} during a work session.
-${metric.violationRate}% of readings were outside safe ranges.
 
-Generate a concise health warning (2-3 sentences) explaining:
-1. What health risks this condition poses to workers
-2. Specific health conditions it can lead to (e.g., heat stroke, respiratory issues, hearing loss, etc.)
-3. One actionable recommendation
+    const prompt = `You are a factory safety and occupational health expert. A factory monitoring system detected that ${metricName} was ${condition} during a work session. ${metric.violationRate}% of readings were outside safe ranges. Generate a concise health warning (2-3 sentences) explaining: 1. What health risks this poses to workers 2. Specific health conditions it can lead to 3. One actionable recommendation. Be specific about health impacts.`;
 
-Be specific about health impacts. For example, if temperature is high, mention heat stress, dehydration, cardiovascular strain, etc.
-If air quality is poor, mention respiratory issues, headaches, reduced cognitive function.
-If noise is high, mention hearing loss, stress, cardiovascular issues.
-If lighting is low, mention eye strain, accidents, fatigue.
-
-Format as a clear, professional warning.`;
-
-    const sql = `
-      SELECT SNOWFLAKE.CORTEX.COMPLETE(
-        'mistral-large2',
-        ?
-      ) AS ai_warning
-    `;
+    const sql = `SELECT SNOWFLAKE.CORTEX.COMPLETE('mistral-large2', ?) AS ai_warning`;
 
     try {
-      const result = await new Promise((resolve, reject) => {
+      const result = await new Promise((resolve) => {
         conn.execute({
           sqlText: sql,
           binds: [prompt],
           complete: (err, stmt, rows) => {
-            if (err) {
-              // Fallback if Cortex is not available
-              resolve({ AI_WARNING: generateFallbackWarning(metric) });
-            } else {
-              resolve(rows[0]);
-            }
+            if (err) resolve({ AI_WARNING: generateFallbackWarning(metric) });
+            else resolve(rows[0]);
           },
         });
       });
 
       warnings.push({
-        metric: metric.metric,
-        metricName: metricName,
-        value: metric.value,
-        unit: metric.unit,
-        threshold: metric.threshold,
-        violationRate: metric.violationRate,
+        metric: metric.metric, metricName, value: metric.value, unit: metric.unit,
+        threshold: metric.threshold, violationRate: metric.violationRate,
         warning: result.AI_WARNING || generateFallbackWarning(metric),
         severity: metric.violationRate > 50 ? 'high' : 'medium',
       });
-    } catch (error) {
-      // Fallback warning if Cortex fails
+    } catch {
       warnings.push({
-        metric: metric.metric,
-        metricName: metricName,
-        value: metric.value,
-        unit: metric.unit,
-        threshold: metric.threshold,
-        violationRate: metric.violationRate,
+        metric: metric.metric, metricName, value: metric.value, unit: metric.unit,
+        threshold: metric.threshold, violationRate: metric.violationRate,
         warning: generateFallbackWarning(metric),
         severity: metric.violationRate > 50 ? 'high' : 'medium',
       });
     }
   }
-
   return warnings;
 }
 
-/**
- * Fallback warning generator if Cortex is unavailable
- */
 function generateFallbackWarning(metric) {
-  const warnings = {
+  const w = {
     temperature: {
-      high: 'High temperatures can lead to heat stress, dehydration, and cardiovascular strain. Prolonged exposure increases risk of heat exhaustion, heat stroke, and can exacerbate existing heart conditions. Immediate action: Ensure adequate ventilation, provide cool rest areas, and implement frequent hydration breaks.',
-      low: 'Low temperatures can cause hypothermia, reduced dexterity, and increased risk of accidents. Cold stress can lead to numbness, frostbite, and cardiovascular issues. Immediate action: Provide heated work areas, ensure proper insulation, and allow warm-up breaks.',
+      high: 'High temperatures can lead to heat stress, dehydration, and cardiovascular strain. Immediate action: Ensure adequate ventilation and hydration breaks.',
+      low: 'Low temperatures can cause hypothermia and reduced dexterity. Immediate action: Provide heated work areas and warm-up breaks.',
     },
     humidity: {
-      high: 'High humidity combined with heat can prevent effective cooling through sweating, leading to heat-related illnesses. It can also promote mold growth and respiratory issues. Immediate action: Improve ventilation and use dehumidifiers.',
-      low: 'Low humidity can cause dry skin, eye irritation, and respiratory discomfort. It can also increase susceptibility to respiratory infections. Immediate action: Use humidifiers and ensure adequate hydration.',
+      high: 'High humidity prevents effective cooling through sweating. Immediate action: Improve ventilation and use dehumidifiers.',
+      low: 'Low humidity can cause dry skin and respiratory discomfort. Immediate action: Use humidifiers and ensure adequate hydration.',
     },
-    airQuality: {
-      high: 'Elevated CO2 levels can cause headaches, dizziness, fatigue, and reduced cognitive function. Prolonged exposure may lead to respiratory issues and cardiovascular strain. Immediate action: Improve ventilation, check HVAC systems, and consider air quality monitoring.',
-    },
-    noise: {
-      high: 'Excessive noise exposure can lead to permanent hearing loss, tinnitus, and increased stress levels. It can also cause cardiovascular issues, sleep disturbances, and reduced concentration. Immediate action: Provide hearing protection, reduce noise sources, and implement engineering controls.',
-    },
-    lighting: {
-      low: 'Insufficient lighting can cause eye strain, headaches, and increased risk of accidents. Poor visibility can lead to musculoskeletal issues from awkward postures and reduced productivity. Immediate action: Increase lighting levels, ensure proper task lighting, and reduce glare.',
-    },
+    airQuality: { high: 'Elevated CO2 levels can cause headaches, fatigue, and reduced cognitive function. Immediate action: Improve ventilation and check HVAC systems.' },
+    noise: { high: 'Excessive noise can lead to permanent hearing loss and stress. Immediate action: Provide hearing protection and reduce noise sources.' },
+    lighting: { low: 'Insufficient lighting causes eye strain and increased accident risk. Immediate action: Increase lighting levels and ensure proper task lighting.' },
   };
-
   const key = metric.metric === 'airQuality' ? 'airQuality' : metric.metric;
-  const type = metric.isHigh ? 'high' : 'low';
-  
-  return warnings[key]?.[type] || `This condition may pose health risks. Please review safety guidelines.`;
+  return w[key]?.[metric.isHigh ? 'high' : 'low'] || 'This condition may pose health risks. Please review safety guidelines.';
+}
+
+/**
+ * Get recent NLP abuse warnings for a company
+ */
+async function getNLPWarnings(companyId, limit = 10) {
+  if (!isEnabled()) return [];
+
+  const conn = await getConnection();
+  if (!conn) return [];
+
+  const sql = `
+    SELECT
+      created_at as report_timestamp,
+      is_abusive,
+      severity,
+      flagged_categories
+    FROM GOVERNANCE.ABUSE_REPORTS
+    WHERE factory_id = ?
+      AND is_abusive = TRUE
+    ORDER BY created_at DESC
+    LIMIT ?
+  `;
+
+  return new Promise((resolve) => {
+    conn.execute({
+      sqlText: sql,
+      binds: [companyId, limit],
+      complete: (err, stmt, rows) => {
+        if (err) {
+          console.warn('Snowflake getNLPWarnings failed:', err.message);
+          resolve([]);
+          return;
+        }
+        const warnings = rows.map(row => {
+          const categories = row.FLAGGED_CATEGORIES ? row.FLAGGED_CATEGORIES.split(',') : [];
+          return {
+            timestamp: new Date(row.REPORT_TIMESTAMP).getTime(),
+            severity: row.SEVERITY > 0.5 ? 'high' : 'medium',
+            categories,
+            message: `Verbal abuse detected: ${categories.join(', ')}`,
+          };
+        });
+        resolve(warnings);
+      },
+    });
+  }).catch(() => []);
 }
 
 module.exports = {
@@ -570,4 +499,5 @@ module.exports = {
   insertRewardPayout,
   insertAbuseReport,
   getSessionAnalysis,
+  getNLPWarnings,
 };
