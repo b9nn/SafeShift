@@ -2,29 +2,44 @@ import { useState, useEffect } from 'react';
 import './SplashPage.css';
 import solanaLogo from '../assets/solana-logo.png';
 import snowflakeLogo from '../assets/snowflake-logo.png';
+import solanaIcon from '../assets/solana-icon.png';
 
 interface SplashPageProps {
-  onEnter?: () => void;
+  onAccessWallet?: () => void;
 }
 
-export default function SplashPage({ onEnter }: SplashPageProps) {
+type PageState = 'splash' | 'transitioning' | 'wallet';
+
+export default function SplashPage({ onAccessWallet }: SplashPageProps) {
   const [activeIndex, setActiveIndex] = useState(0);
+  const [pageState, setPageState] = useState<PageState>('splash');
 
   useEffect(() => {
+    if (pageState !== 'splash') return;
     const interval = setInterval(() => {
       setActiveIndex((prev) => (prev + 1) % 2);
-    }, 3000); // swap every 3 seconds
+    }, 3000);
     return () => clearInterval(interval);
-  }, []);
+  }, [pageState]);
+
+  const handleGetStarted = () => {
+    setPageState('transitioning');
+    // After the CSS transition finishes, switch to wallet state
+    setTimeout(() => setPageState('wallet'), 900);
+  };
 
   return (
     <div className="splash-page">
       {/* Hexagonal background pattern */}
       <div className="hex-bg" />
 
-      <div className="splash-content">
-        <h1 className="splash-title">SafeShift</h1>
+      {/* SafeShift title - animates from center to top-right */}
+      <h1 className={`splash-title ${pageState !== 'splash' ? 'title-corner' : ''}`}>
+        SafeShift
+      </h1>
 
+      {/* Splash center content - fades out on transition */}
+      <div className={`splash-center ${pageState !== 'splash' ? 'fade-out' : ''}`}>
         <div className="powered-by">
           <span className="powered-text">Powered By</span>
           <div className="brand-carousel">
@@ -38,11 +53,24 @@ export default function SplashPage({ onEnter }: SplashPageProps) {
         </div>
       </div>
 
-      {onEnter && (
-        <button className="enter-btn" onClick={onEnter}>
+      {/* Get Started button - only on splash */}
+      {pageState === 'splash' && (
+        <button className="enter-btn" onClick={handleGetStarted}>
           Get Started
         </button>
       )}
+
+      {/* Wallet content - fades in after transition */}
+      <div className={`wallet-content ${pageState === 'wallet' ? 'visible' : ''}`}>
+        {/* Solana icon */}
+        <div className="solana-icon-wrapper">
+          <img src={solanaIcon} alt="Solana" className="solana-icon" />
+        </div>
+
+        <button className="access-wallet-btn" onClick={onAccessWallet}>
+          Access Wallet
+        </button>
+      </div>
     </div>
   );
 }
