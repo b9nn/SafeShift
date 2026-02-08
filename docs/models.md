@@ -55,7 +55,7 @@ The score combines two things:
 
 Thresholds alone only catch obvious violations (e.g., temperature hits 100°F). The model also catches:
 
-- **Patterns over time** — a factory that runs hot only at 2am (suggesting unreported overnight shifts)
+- **Patterns over time** — a factory that runs hot only at 2am (suggesting unusual operational patterns)
 - **Correlated anomalies** — noise and humidity spiking together (suggesting a machine running without ventilation)
 - **Slow drift** — conditions gradually worsening over weeks without ever crossing a single threshold
 

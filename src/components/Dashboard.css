@@ -41,3 +41,7 @@
   padding: 1.5rem;
   backdrop-filter: blur(10px);
 }
+
+.dashboard-section.full-width {
+  grid-column: 1 / -1; /* Span all columns */
+}

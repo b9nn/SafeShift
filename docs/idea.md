@@ -14,7 +14,6 @@ We are proposing a system to deploy in factories especially in regions known for
 - noise level
 - light level
 - vibrations?
-- **time based operational patters for shift length detection** ⭐
 
 *ml application*
 - detecting abnormal conditions (train on factory data) ❗ **the data is unlabeled so we need to define thresholds/labels DO NOT NEED TO BE PERFECT**

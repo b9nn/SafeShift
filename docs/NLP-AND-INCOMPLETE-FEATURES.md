@@ -57,26 +57,6 @@ NLP analyzes → Returns results → Stored in Snowflake GOVERNANCE.ABUSE_REPORT
 
 Based on original idea (`docs/idea.md`) and current codebase analysis:
 
-### 1. **Shift Length Detection** ⭐ (High Priority - Mentioned in Idea)
-
-**What's Missing:**
-- Time-based operational pattern detection
-- Shift start/end time inference from sensor data
-- Comparison against ILO limits (8 hr/day, 48 hr/week)
-- Flagging excessive shift lengths
-
-**Current Status:**
-- ❌ Not implemented in code
-- ✅ Mentioned in `docs/plan.md` as "Phase 4: Shift Length Inference (Deferred)"
-- ✅ Snowflake has tables for shift data but no inference logic
-
-**What Needs to Be Done:**
-- Analyze noise/vibration/light patterns to detect shift boundaries
-- Track operational hours per day/week
-- Compare against ILO standards
-- Flag violations in dashboard
-
----
 
 ### 2. **Certifications System**
 
@@ -234,7 +214,6 @@ Based on original idea (`docs/idea.md`) and current codebase analysis:
 | Feature | Status | Priority | Location |
 |---------|--------|----------|----------|
 | **NLP Verbal Abuse Detection** | ✅ Complete | High | `src/nlp.py`, `src/api.py`, `server/index.js` |
-| **Shift Length Detection** | ❌ Missing | ⭐ High | Not implemented |
 | **Certifications** | ⚠️ Partial | High | SQL only, no frontend/API |
 | **Insurance Discounts** | ⚠️ Partial | ⭐ High | SQL only, no frontend/API |
 | **Company Rating DB** | ❌ Missing | Medium | Not implemented |
@@ -248,8 +227,7 @@ Based on original idea (`docs/idea.md`) and current codebase analysis:
 ## 🎯 Recommended Implementation Order
 
 1. **Frontend-Backend API Integration** (Critical - enables real data)
-2. **Shift Length Detection** (High priority from idea)
-3. **Certifications System** (High value, partially done)
+2. **Certifications System** (High value, partially done)
 4. **Insurance Discounts** (Marked as attractive)
 5. **Company Rating Database** (Medium priority)
 6. **Speech-to-Text** (Medium priority)
@@ -273,4 +251,4 @@ Based on original idea (`docs/idea.md`) and current codebase analysis:
 
 ---
 
-**NLP is fully implemented and integrated. The main gaps are shift length detection, certifications/insurance discounts (partially done), and frontend-backend API connection.**
+**NLP is fully implemented and integrated. The main gaps are certifications/insurance discounts (partially done) and frontend-backend API connection.**
