@@ -99,25 +99,15 @@
 /* ---------- Reward info ---------- */
 .reward-info {
   margin-top: 2rem;
-  text-align: center;
-}
-
-.reward-badge {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.5rem;
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  border-radius: 14px;
-  padding: 1.5rem 3rem;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+  gap: 0.25rem;
 }
 
 .reward-label {
   font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   font-weight: 500;
   color: #888;
   letter-spacing: 0.04em;
@@ -126,44 +116,10 @@
 
 .reward-amount {
   font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
-  font-size: 1.8rem;
+  font-size: 2rem;
   font-weight: 800;
   color: #1a1a2e;
   letter-spacing: -0.01em;
-}
-
-.reward-steps {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  flex-wrap: wrap;
-  justify-content: center;
-  margin: 0.2rem 0;
-}
-
-.step {
-  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
-  font-size: 0.8rem;
-  font-weight: 500;
-  color: #555;
-  background: rgba(26, 26, 46, 0.06);
-  padding: 0.25rem 0.6rem;
-  border-radius: 6px;
-}
-
-.step-arrow {
-  font-size: 0.85rem;
-  color: #aaa;
-  font-weight: 600;
-}
-
-.reward-detail {
-  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
-  font-size: 0.78rem;
-  font-weight: 400;
-  color: #999;
-  text-align: center;
-  line-height: 1.4;
 }
 
 /* ---------- Start monitoring button ---------- */

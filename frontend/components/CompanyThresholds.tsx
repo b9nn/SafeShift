@@ -37,20 +37,8 @@ export default function CompanyThresholds({ onStart }: CompanyThresholdsProps) {
         </div>
 
         <div className="reward-info">
-          <div className="reward-badge">
-            <span className="reward-label">Solana Safety Incentive</span>
-            <span className="reward-amount">0.1 — 0.2 SOL</span>
-            <span className="reward-steps">
-              <span className="step">Sensors monitor conditions in real-time</span>
-              <span className="step-arrow">→</span>
-              <span className="step">ML model scores workplace risk</span>
-              <span className="step-arrow">→</span>
-              <span className="step">Safe score triggers automatic SOL payout</span>
-            </span>
-            <span className="reward-detail">
-              Earned hourly when risk score &lt; 0.3 · paid directly to your Solana wallet on Devnet
-            </span>
-          </div>
+          <span className="reward-label">SOL Reward</span>
+          <span className="reward-amount">0.1 — 0.2 SOL</span>
         </div>
 
         {onStart && (
