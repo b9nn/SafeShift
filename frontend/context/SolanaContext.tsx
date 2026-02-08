@@ -8,6 +8,7 @@ interface SolanaContextType {
   connection: Connection | null;
   rewardService: SolanaRewardService | null;
   wallet: Keypair | null;
+  walletAddress: string | null;
   network: string;
   isConnected: boolean;
   balance: number;
@@ -112,6 +113,7 @@ export const SolanaProvider: React.FC<SolanaProviderProps> = ({ children }) => {
         connection,
         rewardService,
         wallet,
+        walletAddress: wallet?.publicKey.toString() ?? null,
         network,
         isConnected: !!wallet,
         balance,

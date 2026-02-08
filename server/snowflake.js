@@ -492,12 +492,42 @@ async function getNLPWarnings(companyId, limit = 10) {
   }).catch(() => []);
 }
 
+/**
+ * Reset abuse report buffer (for testing or to clear stale warnings).
+ * If companyId is provided, deletes only that company's reports; otherwise truncates the table.
+ */
+async function resetAbuseReports(companyId = null) {
+  if (!isEnabled()) return;
+
+  const conn = await getConnection();
+  if (!conn) return;
+
+  const sql = companyId
+    ? `DELETE FROM GOVERNANCE.ABUSE_REPORTS WHERE factory_id = ?`
+    : `TRUNCATE TABLE IF EXISTS GOVERNANCE.ABUSE_REPORTS`;
+  const binds = companyId ? [companyId] : [];
+
+  return new Promise((resolve, reject) => {
+    conn.execute({
+      sqlText: sql,
+      binds,
+      complete: (err) => {
+        if (err) {
+          console.warn('Snowflake resetAbuseReports failed:', err.message);
+          reject(err);
+        } else resolve();
+      },
+    });
+  });
+}
+
 module.exports = {
   isEnabled,
   insertRawReading,
   insertMLRiskScore,
   insertRewardPayout,
   insertAbuseReport,
-  getSessionAnalysis,
   getNLPWarnings,
+  resetAbuseReports,
+  getSessionAnalysis,
 };

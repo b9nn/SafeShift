@@ -9,13 +9,16 @@
  * 5. Optionally verify Snowflake has data
  *
  * Usage: node scripts/test-e2e.js [--snowflake]
- * Env: SERVER_URL (default http://localhost:3001)
+ * Env: SERVER_URL (default http://localhost:3001),
+ *      RECIPIENT_WALLET (company wallet to receive SOL; default = main wallet),
+ *      REWARD_COOLDOWN_MS=0 on server for repeated reward tests.
  */
 
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 const fetch = require('node-fetch');
 
 const SERVER_URL = process.env.SERVER_URL || 'http://localhost:3001';
+const RECIPIENT_WALLET = process.env.RECIPIENT_WALLET || '376uy5oJLDSAb6EqjaZrAtsumHBQyTVoPk6AANpvAqqF';
 const VERIFY_SNOWFLAKE = process.argv.includes('--snowflake');
 
 async function main() {
@@ -34,7 +37,7 @@ async function main() {
       body: JSON.stringify({
         companyId: 'e2e-test-company',
         name: 'E2E Test Factory',
-        walletAddress: '376uy5oJLDSAb6EqjaZrAtsumHBQyTVoPk6AANpvAqqF',
+        walletAddress: RECIPIENT_WALLET,
       }),
     });
     const regData = await regRes.json();
@@ -89,11 +92,19 @@ async function main() {
     }
 
     if (rewardSent) {
-      console.log(`   ✅ Reward sent: ${sensorData.reward.amount} SOL`);
+      console.log(`   ✅ Reward sent: ${sensorData.reward.amount} SOL to ${RECIPIENT_WALLET}`);
       console.log(`   Tx: ${sensorData.reward.transactionSignature}`);
+      console.log(`   Verify balance: node scripts/check-sol-balance.js ${RECIPIENT_WALLET}`);
       passed++;
     } else {
-      console.log(`   ⚠️  No reward: ${sensorData.reward?.reason || 'unknown'}`);
+      const reason = sensorData.reward?.reason || 'unknown';
+      console.log(`   ⚠️  No reward: ${reason}`);
+      if (reason.includes('rewarded recently')) {
+        console.log('   Tip: Start server with REWARD_COOLDOWN_MS=0 for testing: $env:REWARD_COOLDOWN_MS="0"; npm run server');
+      }
+      if (reason.includes('Transfer failed')) {
+        console.log('   Tip: Check main wallet has devnet SOL (faucet.solana.com) and config/wallet.js network is devnet.');
+      }
       if (isSafe) failed++;
     }
     console.log('');

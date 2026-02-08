@@ -37,7 +37,8 @@ async function sendSOLReward(recipientAddress, amountSOL) {
   try {
     const { PublicKey } = require('@solana/web3.js');
     const recipientPubkey = new PublicKey(recipientAddress);
-    const amountLamports = amountSOL * LAMPORTS_PER_SOL;
+    // Lamports must be an integer (floating point can yield e.g. 121000000.00000001)
+    const amountLamports = Math.floor(amountSOL * LAMPORTS_PER_SOL);
 
     const transaction = new Transaction().add(
       SystemProgram.transfer({
@@ -207,18 +208,27 @@ app.post('/api/sensor-data', async (req, res) => {
     let rewardSent = false;
     let rewardAmount = 0;
     let transactionSignature = null;
+    let rewardReason = !isSafe ? 'Risk score too high (>= 0.3)' : null;
 
     if (isSafe) {
       // Get company info (in production, from database)
       const company = companies.get(companyId);
-      
-      if (company) {
-        // Check cooldown (prevent spam rewards - 1 hour minimum)
-        const timeSinceLastReward = company?.lastRewardAt 
-          ? Date.now() - company.lastRewardAt 
+
+      if (!company) {
+        rewardReason = 'Company not found in registry';
+        console.log(`⚠️  Company ${companyId} not found in registry`);
+      } else {
+        // Check cooldown (prevent spam rewards). Use REWARD_COOLDOWN_MS=0 for testing.
+        const cooldownMs = parseInt(process.env.REWARD_COOLDOWN_MS || '3600000', 10); // default 1 hour
+        const timeSinceLastReward = company.lastRewardAt
+          ? Date.now() - company.lastRewardAt
           : Infinity;
 
-        if (timeSinceLastReward > 3600000) { // 1 hour
+        if (timeSinceLastReward <= cooldownMs) {
+          const waitMin = Math.ceil((cooldownMs - timeSinceLastReward) / 60000);
+          rewardReason = `Already rewarded recently (try again in ~${waitMin} min, or start server with REWARD_COOLDOWN_MS=0 for testing)`;
+          console.log(`⏳ Company ${companyId} already rewarded recently, skipping`);
+        } else {
           // Calculate reward amount based on how safe (lower risk = higher reward)
           rewardAmount = 0.1 + (0.3 - riskScore) * 0.1; // 0.1 to 0.2 SOL
           rewardAmount = Math.min(0.2, Math.max(0.1, rewardAmount));
@@ -258,13 +268,10 @@ app.post('/api/sensor-data', async (req, res) => {
             console.log(`💰 Reward sent! ${rewardAmount} SOL to ${company.walletAddress}`);
             console.log(`   Transaction: ${transactionSignature}`);
           } catch (error) {
+            rewardReason = `Transfer failed: ${error.message}`;
             console.error('❌ Failed to send reward:', error);
           }
-        } else {
-          console.log(`⏳ Company ${companyId} already rewarded recently, skipping`);
         }
-      } else {
-        console.log(`⚠️  Company ${companyId} not found in registry`);
       }
     }
 
@@ -284,9 +291,7 @@ app.post('/api/sensor-data', async (req, res) => {
         transactionSignature,
       } : {
         sent: false,
-        reason: isSafe 
-          ? 'Already rewarded recently or company not found' 
-          : 'Risk score too high (>= 0.3)',
+        reason: rewardReason,
       },
       timestamp: Date.now(),
     });
@@ -350,6 +355,87 @@ app.get('/api/sensor-data/:deviceId', (req, res) => {
     return res.json({ success: false, error: 'No data for device' });
   }
   res.json({ success: true, ...data });
+});
+
+/**
+ * POST /api/claim-reward
+ * Manually trigger sending a SOL reward to a company (e.g. from "Collect" on frontend).
+ * Body: { companyId?: string }. Query: ?force=1 to bypass cooldown.
+ * If no companyId, uses first registered company.
+ */
+app.post('/api/claim-reward', async (req, res) => {
+  try {
+    const { companyId: bodyCompanyId } = req.body || {};
+    const force = req.query.force === '1' || req.query.force === 'true';
+    const companyId = bodyCompanyId || (companies.has('demo-company') ? 'demo-company' : (companies.size > 0 ? companies.keys().next().value : null));
+
+    if (!companyId) {
+      return res.status(400).json({
+        success: false,
+        error: 'No company registered. Register a company with a wallet address first.',
+      });
+    }
+
+    const company = companies.get(companyId);
+    if (!company) {
+      return res.status(404).json({
+        success: false,
+        error: `Company ${companyId} not found`,
+      });
+    }
+
+    const cooldownMs = force ? 0 : parseInt(process.env.REWARD_COOLDOWN_MS || '3600000', 10);
+    const timeSinceLastReward = company.lastRewardAt ? Date.now() - company.lastRewardAt : Infinity;
+    if (timeSinceLastReward <= cooldownMs && !force) {
+      const waitMin = Math.ceil((cooldownMs - timeSinceLastReward) / 60000);
+      return res.status(429).json({
+        success: false,
+        error: `Cooldown: try again in ~${waitMin} min, or use ?force=1 for testing`,
+      });
+    }
+
+    const riskScore = 0.15; // default for manual claim
+    let rewardAmount = 0.1 + (0.3 - riskScore) * 0.1;
+    rewardAmount = Math.min(0.2, Math.max(0.1, rewardAmount));
+
+    const transactionSignature = await sendSOLReward(company.walletAddress, rewardAmount);
+
+    if (!company.totalRewardsReceived) company.totalRewardsReceived = 0;
+    company.totalRewardsReceived += rewardAmount;
+    company.lastRewardAt = Date.now();
+    companies.set(companyId, company);
+
+    rewardHistory.push({
+      companyId,
+      deviceId: 'manual-claim',
+      timestamp: Date.now(),
+      riskScore,
+      rewardAmount,
+      transactionSignature,
+    });
+
+    snowflake.insertRewardPayout({
+      factoryId: companyId,
+      solanaTxHash: transactionSignature,
+      rewardAmountSOL: rewardAmount,
+      riskScore,
+    }).catch(() => {});
+
+    console.log(`💰 Claim reward: ${rewardAmount} SOL to ${company.walletAddress} (${companyId})`);
+    res.json({
+      success: true,
+      transactionSignature,
+      rewardAmount,
+      recipientAddress: company.walletAddress,
+      explorerUrl: `https://explorer.solana.com/tx/${transactionSignature}?cluster=${network}`,
+    });
+  } catch (error) {
+    console.error('Claim reward error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to send reward',
+    });
+  }
 });
 
 /**
@@ -493,6 +579,28 @@ app.get('/api/session-analysis/:companyId', async (req, res) => {
 });
 
 /**
+ * POST /api/nlp-warnings/reset
+ * Reset abuse report buffer (all or for one company). Use for testing or to clear stale warnings.
+ * Body: { companyId?: string } — omit to clear all, or set to clear only that company.
+ */
+app.post('/api/nlp-warnings/reset', async (req, res) => {
+  try {
+    const { companyId } = req.body || {};
+    await snowflake.resetAbuseReports(companyId || null);
+    res.json({
+      success: true,
+      message: companyId ? `Abuse reports cleared for company ${companyId}` : 'Abuse report buffer cleared',
+    });
+  } catch (error) {
+    console.error('Error resetting abuse reports:', error);
+    res.status(500).json({
+      error: 'Failed to reset abuse reports',
+      message: error.message,
+    });
+  }
+});
+
+/**
  * GET /api/nlp-warnings/:companyId
  * Get recent NLP abuse warnings for a company
  */
@@ -538,9 +646,35 @@ app.get('/api/health', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`🚀 SafeShift Server running on http://localhost:${PORT}`);
   console.log(`💰 Main wallet: ${mainWallet.publicKey.toString()}`);
   console.log(`🌐 Network: ${network}`);
   console.log(`📡 Ready to receive sensor data from Arduino devices`);
+
+  // Optional: reset abuse report buffer on startup (e.g. for testing)
+  if (process.env.RESET_ABUSE_REPORTS_ON_STARTUP === '1' || process.env.RESET_ABUSE_REPORTS_ON_STARTUP === 'true') {
+    try {
+      await snowflake.resetAbuseReports();
+      console.log('📋 Abuse report buffer reset on startup');
+    } catch (e) {
+      console.warn('Could not reset abuse reports on startup:', e.message);
+    }
+  }
+
+  // Register demo company so Collect / rewards work out of the box (rewards go to main wallet)
+  const demoAddress = walletConfig.address;
+  if (!companies.has('demo-company')) {
+    companies.set('demo-company', {
+      id: 'demo-company',
+      name: 'Demo Factory',
+      walletAddress: demoAddress,
+      deviceIds: ['arduino-001'],
+      totalRewardsReceived: 0,
+      lastRewardAt: null,
+      registeredAt: Date.now(),
+      isActive: true,
+    });
+    console.log(`✅ Demo company registered (wallet: ${demoAddress.slice(0, 8)}...${demoAddress.slice(-6)}) — ready for Collect / rewards`);
+  }
 });

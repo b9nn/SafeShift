@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import './LiveFeed.css';
+import LiveMicInput from './LiveMicInput';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -22,10 +23,8 @@ const METRICS: MetricConfig[] = [
   { label: 'Noise Score', unit: '/100', min: 0, max: 100, thresholdLow: 50, thresholdHigh: 100 },
 ];
 
-function randomInRange(min: number, max: number, decimals = 0): number {
-  const val = Math.random() * (max - min) + min;
-  return decimals > 0 ? parseFloat(val.toFixed(decimals)) : Math.round(val);
-}
+const DEVICE_ID = 'arduino-001';
+const POLL_INTERVAL = 1000; // 1s for snappier noise/sensor updates
 
 function getStatus(value: number, config: MetricConfig): { text: string; color: string } {
   // For noise: lower is better (inverted)
@@ -68,8 +67,8 @@ function CircularGauge({ value, min, max, color }: { value: number; min: number;
   const range = max - min;
   const clamped = Math.max(min, Math.min(max, value));
   const ratio = (clamped - min) / range;
-  const dashOffset = circumference * (1 - ratio * 0.75); // 270deg arc (0.75 of full circle)
-  const bgDash = circumference * 0.75;
+  const bgDash = circumference * 0.75; // 270deg arc
+  const valueDash = ratio * bgDash; // value arc length (so it doesn't wrap)
 
   return (
     <svg className="gauge-svg" viewBox="0 0 120 120">
@@ -84,17 +83,17 @@ function CircularGauge({ value, min, max, color }: { value: number; min: number;
         strokeLinecap="round"
         transform="rotate(135 60 60)"
       />
-      {/* Value arc */}
+      {/* Value arc: dash length = ratio of arc so low values don't wrap */}
       <circle
         cx="60" cy="60" r={radius}
         fill="none"
         stroke={color}
         strokeWidth={stroke}
-        strokeDasharray={`${bgDash} ${circumference}`}
-        strokeDashoffset={dashOffset}
+        strokeDasharray={`${valueDash} ${circumference}`}
+        strokeDashoffset={0}
         strokeLinecap="round"
         transform="rotate(135 60 60)"
-        style={{ transition: 'stroke-dashoffset 0.8s ease, stroke 0.5s ease' }}
+        style={{ transition: 'stroke-dasharray 0.3s ease, stroke 0.3s ease' }}
       />
     </svg>
   );
@@ -103,7 +102,7 @@ function CircularGauge({ value, min, max, color }: { value: number; min: number;
 // ---------------------------------------------------------------------------
 // Animated number
 // ---------------------------------------------------------------------------
-function AnimatedNumber({ value, decimals = 0 }: { value: number; decimals?: number }) {
+function AnimatedNumber({ value, decimals = 0, durationMs = 350 }: { value: number; decimals?: number; durationMs?: number }) {
   const [display, setDisplay] = useState(value);
   const animRef = useRef<number | null>(null);
   const startRef = useRef(display);
@@ -112,7 +111,7 @@ function AnimatedNumber({ value, decimals = 0 }: { value: number; decimals?: num
   useEffect(() => {
     startRef.current = display;
     startTime.current = performance.now();
-    const duration = 700;
+    const duration = durationMs;
 
     const animate = (now: number) => {
       const elapsed = now - startTime.current;
@@ -125,7 +124,7 @@ function AnimatedNumber({ value, decimals = 0 }: { value: number; decimals?: num
 
     animRef.current = requestAnimationFrame(animate);
     return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
-  }, [value]);
+  }, [value, durationMs]);
 
   return <>{decimals > 0 ? display.toFixed(decimals) : display}</>;
 }
@@ -171,8 +170,8 @@ function computeReward(riskScore: number): number {
 // ---------------------------------------------------------------------------
 // SOL Projections overlay
 // ---------------------------------------------------------------------------
-function SolProjections({ values, onClose }: { values: number[]; onClose: () => void }) {
-  const riskScore = computeRiskScore(values);
+function SolProjections({ values, apiRisk, onClose }: { values: number[]; apiRisk?: number | null; onClose: () => void }) {
+  const riskScore = apiRisk != null ? apiRisk : computeRiskScore(values);
   const qualifies = riskScore < 0.3;
   const rewardPerHour = computeReward(riskScore);
   const daily = rewardPerHour * 24;
@@ -233,24 +232,98 @@ function SolProjections({ values, onClose }: { values: number[]; onClose: () => 
 export { METRICS, computeRiskScore, computeReward, getStatus };
 export type { MetricConfig };
 
-export default function LiveFeed({ onEndSession }: { onEndSession?: (finalValues: number[]) => void }) {
-  const [values, setValues] = useState<number[]>(
-    METRICS.map((m) => randomInRange(m.min, m.max, m.decimals))
+/** Map API response metrics to the 5-gauge display order:
+ *  [morale, temperature_C, magnetic_uT, pressure_hPa, noise_score] */
+function apiToValues(data: Record<string, unknown>): number[] {
+  const m = data.metrics as Record<string, number> | undefined;
+  if (!m) return [75, 24, 45, 1013, 42]; // defaults
+
+  // Temperature: server sends °F → convert to °C
+  const tempC = m.temperature != null ? (m.temperature - 32) * 5 / 9 : 24;
+  // Magnetic field in µT (may be absent)
+  const mag = m.magnetic_uT ?? 45;
+  // Pressure in hPa
+  const pressure = m.pressure ?? 1013;
+  // Noise: server sends dBA (45–95). Map so conversation (50–65 dBA) shows mid-range (35–60).
+  // Linear in conversation range: 45→22, 55→45, 65→58, 75→72, 85+→85–100
+  const noiseDba = m.noise ?? 50;
+  const clampedDba = Math.max(45, Math.min(95, noiseDba));
+  const noiseScore = Math.round(
+    clampedDba <= 70
+      ? 22 + ((clampedDba - 45) / 25) * 36   // 45–70 dBA → 22–58
+      : 58 + ((clampedDba - 70) / 25) * 42   // 70–95 dBA → 58–100
   );
+  const noiseScoreClamped = Math.max(0, Math.min(100, noiseScore));
+  return [
+    75, // morale placeholder — driven entirely by NLP, not sensors
+    parseFloat(tempC.toFixed(1)),
+    Math.round(mag),
+    Math.round(pressure),
+    noiseScoreClamped,
+  ];
+}
+
+// NLP-only morale: starts at 75, abuse drops it, recovers toward 75 over time
+const MORALE_BASELINE = 75;
+const NLP_DROP = 40;          // max drop for severity=1.0
+const MORALE_RECOVERY = 1;    // points recovered per poll tick (1s) toward baseline
+
+export default function LiveFeed({ onEndSession }: { onEndSession?: (finalValues: number[]) => void }) {
+  const [values, setValues] = useState<number[]>([75, 24, 45, 1013, 42]);
   const [showProjections, setShowProjections] = useState(false);
+  const [live, setLive] = useState(false);
+  const [apiRisk, setApiRisk] = useState<number | null>(null);
+  const [morale, setMorale] = useState(MORALE_BASELINE);
+
+  // NLP abuse callback — called by LiveMicInput when toxic-bert returns a result
+  const handleNlpResult = useCallback((analysis: {
+    is_abusive: boolean;
+    severity: string;
+    flagged_categories: string[];
+  }) => {
+    if (analysis.is_abusive) {
+      const severity = parseFloat(analysis.severity);
+      setMorale(prev => Math.max(0, prev - severity * NLP_DROP));
+    } else {
+      // Positive/neutral input gives a small boost
+      setMorale(prev => Math.min(100, prev + 5));
+    }
+  }, []);
+
+  // Display values: swap in NLP-driven morale for index 0
+  const displayValues = useMemo(() => {
+    const result = [...values];
+    result[0] = Math.round(morale);
+    return result;
+  }, [values, morale]);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setValues((prev) =>
-        METRICS.map((m, i) => {
-          const drift = (m.max - m.min) * 0.08;
-          const next = prev[i] + (Math.random() - 0.5) * drift * 2;
-          const clamped = Math.max(m.min, Math.min(m.max, next));
-          return m.decimals ? parseFloat(clamped.toFixed(m.decimals)) : Math.round(clamped);
-        })
-      );
-    }, 3000);
-    return () => clearInterval(interval);
+    let active = true;
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/sensor-data/${DEVICE_ID}`);
+        const data = await res.json();
+        if (!active) return;
+        if (data.success) {
+          setValues(apiToValues(data));
+          setApiRisk(parseFloat(String(data.riskScore ?? '0.2')));
+          setLive(true);
+        }
+      } catch {
+        // API unavailable — keep last values
+      }
+
+      // Slowly recover morale toward baseline when no input
+      setMorale(prev => {
+        if (prev < MORALE_BASELINE) return Math.min(MORALE_BASELINE, prev + MORALE_RECOVERY);
+        return prev; // don't decay above baseline
+      });
+    };
+
+    poll(); // initial fetch
+    const interval = setInterval(poll, POLL_INTERVAL);
+    return () => { active = false; clearInterval(interval); };
   }, []);
 
   return (
@@ -259,23 +332,30 @@ export default function LiveFeed({ onEndSession }: { onEndSession?: (finalValues
 
       <div className="livefeed-content">
         <h2 className="livefeed-heading">Live Feed</h2>
+        <span className="livefeed-status" style={{ color: live ? '#2ecc71' : '#e8a825' }}>
+          {live ? '● Connected to Arduino' : '○ Waiting for sensor data…'}
+        </span>
 
         <div className="livefeed-grid">
           {METRICS.map((metric, i) => {
-            const status = getStatus(values[i], metric);
+            const status = getStatus(displayValues[i], metric);
             return (
               <div className="gauge-card" key={metric.label}>
                 <span className="gauge-label">{metric.label}</span>
                 <div className="gauge-wrapper">
                   <CircularGauge
-                    value={values[i]}
+                    value={displayValues[i]}
                     min={metric.min}
                     max={metric.max}
                     color={status.color}
                   />
                   <div className="gauge-center">
                     <span className="gauge-value">
-                      <AnimatedNumber value={values[i]} decimals={metric.decimals} />
+                      <AnimatedNumber
+                        value={displayValues[i]}
+                        decimals={metric.decimals}
+                        durationMs={metric.label === 'Noise Score' ? 180 : 350}
+                      />
                     </span>
                     <span className="gauge-unit">{metric.unit}</span>
                   </div>
@@ -288,16 +368,31 @@ export default function LiveFeed({ onEndSession }: { onEndSession?: (finalValues
           })}
         </div>
 
+        {morale < MORALE_BASELINE && (
+          <div className="nlp-penalty-indicator">
+            <span className="nlp-penalty-dot" />
+            Abuse detected — morale recovering toward {MORALE_BASELINE}
+          </div>
+        )}
+
+        <div className="livefeed-mic-section">
+          <LiveMicInput
+            companyId="company-001"
+            onAnalysisResult={handleNlpResult}
+            compact
+          />
+        </div>
+
         <button className="sol-projections-btn" onClick={() => setShowProjections(true)}>
           SOL Projections
         </button>
-        <button className="end-session-btn" onClick={() => onEndSession?.(values)}>
+        <button className="end-session-btn" onClick={() => onEndSession?.(displayValues)}>
           End Session
         </button>
       </div>
 
       {showProjections && (
-        <SolProjections values={values} onClose={() => setShowProjections(false)} />
+        <SolProjections values={displayValues} apiRisk={apiRisk} onClose={() => setShowProjections(false)} />
       )}
     </div>
   );

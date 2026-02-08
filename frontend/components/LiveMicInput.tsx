@@ -2,25 +2,39 @@ import { useState, useEffect, useRef } from 'react';
 import { Company } from '../types/company';
 import './LiveMicInput.css';
 
-interface LiveMicInputProps {
-  company: Company;
+interface NlpAnalysis {
+  is_abusive: boolean;
+  severity: string;
+  flagged_categories: string[];
+  scores: Record<string, number>;
 }
 
-const LiveMicInput = ({ company }: LiveMicInputProps) => {
+interface LiveMicInputProps {
+  company?: Company;
+  companyId?: string;
+  onAnalysisResult?: (analysis: NlpAnalysis) => void;
+  compact?: boolean;
+}
+
+const LiveMicInput = ({ company, companyId: propCompanyId, onAnalysisResult, compact }: LiveMicInputProps) => {
+  const effectiveCompanyId = company?.id ?? propCompanyId ?? 'company-001';
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState<string>('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [lastWarning, setLastWarning] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
-  
+  const [textInput, setTextInput] = useState('');
+
   const recognitionRef = useRef<any>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  const isRecordingRef = useRef(false);
+  const analyzingRef = useRef(false);
+  const analyzeRef = useRef<(text: string) => void>(() => {});
 
   // Initialize Web Speech API (browser's built-in speech recognition)
   useEffect(() => {
-    // Check if browser supports speech recognition
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    
+
     if (!SpeechRecognition) {
       setError('Speech recognition not supported in this browser. Try Chrome or Edge.');
       return;
@@ -36,37 +50,33 @@ const LiveMicInput = ({ company }: LiveMicInputProps) => {
       let finalTranscript = '';
 
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
+        const t = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          finalTranscript += transcript + ' ';
+          finalTranscript += t + ' ';
         } else {
-          interimTranscript += transcript;
+          interimTranscript += t;
         }
       }
 
       setTranscript(finalTranscript + interimTranscript);
 
-      // Auto-analyze when we have a final transcript (sentence/phrase complete)
+      // Analyze final transcript via ref (avoids stale closure)
       if (finalTranscript.trim().length > 0) {
-        analyzeText(finalTranscript.trim());
+        analyzeRef.current(finalTranscript.trim());
       }
     };
 
     recognition.onerror = (event: any) => {
       console.error('Speech recognition error:', event.error);
-      if (event.error === 'no-speech') {
-        // This is normal, just means no speech detected
-        return;
-      }
+      if (event.error === 'no-speech' || event.error === 'network') return;
       setError(`Speech recognition error: ${event.error}`);
     };
 
     recognition.onend = () => {
-      // Auto-restart if we're still supposed to be recording
-      if (isRecording) {
+      if (isRecordingRef.current) {
         try {
           recognition.start();
-        } catch (e) {
+        } catch (_e) {
           // Already started, ignore
         }
       }
@@ -84,15 +94,14 @@ const LiveMicInput = ({ company }: LiveMicInputProps) => {
   const startRecording = async () => {
     try {
       setError(null);
-      
-      // Request microphone permission
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
 
-      // Start speech recognition
       if (recognitionRef.current) {
         recognitionRef.current.start();
         setIsRecording(true);
+        isRecordingRef.current = true;
       }
     } catch (err: any) {
       setError(`Failed to access microphone: ${err.message}`);
@@ -101,6 +110,7 @@ const LiveMicInput = ({ company }: LiveMicInputProps) => {
   };
 
   const stopRecording = () => {
+    isRecordingRef.current = false;
     if (recognitionRef.current) {
       recognitionRef.current.stop();
     }
@@ -114,8 +124,9 @@ const LiveMicInput = ({ company }: LiveMicInputProps) => {
   };
 
   const analyzeText = async (text: string) => {
-    if (!text.trim() || isAnalyzing) return;
+    if (!text.trim() || analyzingRef.current) return;
 
+    analyzingRef.current = true;
     setIsAnalyzing(true);
     setError(null);
 
@@ -125,8 +136,8 @@ const LiveMicInput = ({ company }: LiveMicInputProps) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: text.trim(),
-          companyId: company.id,
-          factoryId: company.id,
+          companyId: effectiveCompanyId,
+          factoryId: effectiveCompanyId,
           workerId: 'demo-worker',
         }),
       });
@@ -136,11 +147,16 @@ const LiveMicInput = ({ company }: LiveMicInputProps) => {
       }
 
       const data = await response.json();
-      
+
+      // Notify parent of NLP results (for morale integration)
+      if (onAnalysisResult && data.analysis) {
+        onAnalysisResult(data.analysis);
+      }
+
       if (data.warning) {
         setLastWarning({
           ...data.warning,
-          text: text.trim(), // Store the analyzed text for display
+          text: text.trim(),
         });
       } else {
         setLastWarning(null);
@@ -149,7 +165,18 @@ const LiveMicInput = ({ company }: LiveMicInputProps) => {
       console.error('Error analyzing text:', err);
       setError(`Analysis failed: ${err.message}`);
     } finally {
+      analyzingRef.current = false;
       setIsAnalyzing(false);
+    }
+  };
+
+  // Keep ref in sync so speech recognition closure always calls latest version
+  analyzeRef.current = analyzeText;
+
+  const handleTextSubmit = () => {
+    if (textInput.trim()) {
+      analyzeText(textInput.trim());
+      setTextInput('');
     }
   };
 
@@ -158,6 +185,48 @@ const LiveMicInput = ({ company }: LiveMicInputProps) => {
       analyzeText(transcript.trim());
     }
   };
+
+  // Compact mode for LiveFeed integration
+  if (compact) {
+    return (
+      <div className="live-mic-compact">
+        <div className="mic-compact-row">
+          <button
+            className={`mic-compact-btn ${isRecording ? 'recording' : ''}`}
+            onClick={isRecording ? stopRecording : startRecording}
+          >
+            {isRecording ? '⏹ Stop' : '🎤 Mic'}
+          </button>
+          <input
+            className="mic-compact-input"
+            type="text"
+            placeholder="Type to analyze..."
+            value={textInput}
+            onChange={(e) => setTextInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleTextSubmit()}
+            disabled={isAnalyzing}
+          />
+          <button
+            className="mic-compact-send"
+            onClick={handleTextSubmit}
+            disabled={!textInput.trim() || isAnalyzing}
+          >
+            {isAnalyzing ? '...' : '→'}
+          </button>
+        </div>
+        {isRecording && <span className="mic-compact-status">● Listening...</span>}
+        {transcript && (
+          <div className="mic-compact-transcript">{transcript}</div>
+        )}
+        {lastWarning && (
+          <div className={`mic-compact-warning ${lastWarning.severity}`}>
+            Abuse detected: {lastWarning.categories.join(', ')}
+          </div>
+        )}
+        {error && <div className="mic-compact-error">{error}</div>}
+      </div>
+    );
+  }
 
   return (
     <div className="live-mic-input">

@@ -79,6 +79,27 @@
   margin: 0.3rem 0;
 }
 
+.wallet-loading {
+  font-size: 0.95rem;
+  color: #777;
+  margin: 0.5rem 0;
+}
+
+.wallet-refresh-btn {
+  margin-top: 0.75rem;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
+  color: #555;
+  background: #f0f0f0;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.wallet-refresh-btn:hover {
+  background: #e8e8e8;
+}
+
 .wallet-continue-btn {
   padding: 1rem 3rem;
   font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;

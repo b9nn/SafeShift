@@ -1,5 +1,6 @@
-import { useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { computeRiskScore, computeReward } from './LiveFeed';
+import { useSolana } from '../context/SolanaContext';
 import './SolanaResults.css';
 
 interface SolanaResultsProps {
@@ -31,13 +32,18 @@ function truncate(s: string, head = 6, tail = 6): string {
 // Component
 // ---------------------------------------------------------------------------
 export default function SolanaResults({ finalValues }: SolanaResultsProps) {
+  const { refreshBalance, walletAddress } = useSolana();
+  const [claiming, setClaiming] = useState(false);
+  const [claimError, setClaimError] = useState<string | null>(null);
+  const [lastTx, setLastTx] = useState<{ signature: string; amount: number; explorerUrl: string; recipientAddress?: string } | null>(null);
+
   const data = useMemo(() => {
     const riskScore = computeRiskScore(finalValues);
     const qualifies = riskScore < 0.3;
     const rewardAmount = computeReward(riskScore);
-    const txSig = fakeTxSignature();
-    const senderWallet = fakeWalletAddress();
-    const recipientWallet = fakeWalletAddress();
+    const txSig = lastTx?.signature ?? fakeTxSignature();
+    const senderWallet = walletAddress ?? fakeWalletAddress();
+    const recipientWallet = lastTx?.recipientAddress ?? fakeWalletAddress();
     const confidence = 0.85 + Math.random() * 0.14; // 0.85 – 0.99
     const timestamp = new Date();
 
@@ -53,7 +59,47 @@ export default function SolanaResults({ finalValues }: SolanaResultsProps) {
       lamports: Math.round(rewardAmount * 1_000_000_000),
       network: 'devnet' as const,
     };
-  }, [finalValues]);
+  }, [finalValues, lastTx?.signature, lastTx?.recipientAddress, walletAddress]);
+
+  const handleCollect = async () => {
+    setClaimError(null);
+    setClaiming(true);
+    try {
+      const apiBase = import.meta.env.VITE_API_URL || '';
+      const res = await fetch(`${apiBase}/api/claim-reward?force=1`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const text = await res.text();
+      if (text.startsWith('<!') || text.startsWith('<')) {
+        setClaimError('Backend returned HTML instead of JSON. Is the server running? Run: npm run server (port 3001)');
+        return;
+      }
+      let json: { success?: boolean; error?: string; transactionSignature?: string; rewardAmount?: number; explorerUrl?: string; recipientAddress?: string };
+      try {
+        json = JSON.parse(text);
+      } catch {
+        setClaimError('Invalid response from server');
+        return;
+      }
+      if (!json.success) {
+        setClaimError(json.error || 'Claim failed');
+        return;
+      }
+      setLastTx({
+        signature: json.transactionSignature!,
+        amount: json.rewardAmount!,
+        explorerUrl: json.explorerUrl || `https://explorer.solana.com/tx/${json.transactionSignature}?cluster=devnet`,
+        recipientAddress: json.recipientAddress,
+      });
+      await refreshBalance();
+    } catch (e) {
+      setClaimError(e instanceof Error ? e.message : 'Network error');
+    } finally {
+      setClaiming(false);
+    }
+  };
 
   return (
     <div className="solres-page">
@@ -161,9 +207,28 @@ export default function SolanaResults({ finalValues }: SolanaResultsProps) {
         </div>
 
         {data.qualifies && (
-          <button className="collect-btn" onClick={() => alert('Reward collection will be wired to Solana backend')}>
-            Collect {data.rewardAmount.toFixed(4)} SOL
-          </button>
+          <>
+            <button
+              className="collect-btn"
+              onClick={handleCollect}
+              disabled={claiming}
+            >
+              {claiming ? 'Sending…' : `Collect ${data.rewardAmount.toFixed(4)} SOL`}
+            </button>
+            {claimError && (
+              <p className="solres-error" style={{ marginTop: 8, color: '#e74c3c' }}>
+                {claimError}
+              </p>
+            )}
+            {lastTx && (
+              <p className="solres-success" style={{ marginTop: 8 }}>
+                <a href={lastTx.explorerUrl} target="_blank" rel="noopener noreferrer">
+                  View transaction on Explorer →
+                </a>
+                {' '}({lastTx.amount.toFixed(4)} SOL sent). Main wallet balance has been refreshed.
+              </p>
+            )}
+          </>
         )}
       </div>
     </div>

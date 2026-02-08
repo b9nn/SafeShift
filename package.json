@@ -16,6 +16,8 @@
     "dev:all": "concurrently \"npm run dev\" \"npm run server\"",
     "test": "echo \"Error: no test specified\" && exit 1",
     "verify-wallet": "node scripts/verify-wallet.js",
+    "check-balance": "node scripts/check-sol-balance.js",
+    "balance": "node scripts/check-sol-balance.js",
     "check-networks": "node scripts/check-wallet-networks.js",
     "solana-examples": "node scripts/example-solana-usage.js",
     "export-key": "node scripts/export-private-key.js",

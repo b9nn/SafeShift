@@ -62,6 +62,30 @@ function estimateAirQuality(mic_rms) {
   return Math.round(Math.min(1200, Math.max(400, 450 + Math.log10(mic_rms + 1) * 250)));
 }
 
+// Smoothed noise (dBA) so conversation doesn't vanish in one quiet sample
+let smoothedNoiseDba = 45;
+
+/**
+ * Map mic_rms to dBA with a gradual curve so room conversation shows mid-range (50–65 dBA).
+ * - Silence (mic_rms ~200): 45 dBA
+ * - Conversation (250–500): linear 48–62 dBA
+ * - Louder (500–800): 62–72 dBA
+ * - Yelling / close (800+): log scale up to 95 dBA
+ */
+function micRmsToDba(micRms) {
+  const rms = micRms ?? 0;
+  const FLOOR = 180;   // below this = silence
+  const LOW = 250;     // start of "conversation" range
+  const MID = 500;     // end of linear conversation range
+  const HIGH = 800;    // start of log "loud" range
+  if (rms <= FLOOR) return 45;
+  if (rms <= LOW) return 45 + ((rms - FLOOR) / (LOW - FLOOR)) * 5;   // 45 → 50
+  if (rms <= MID) return 50 + ((rms - LOW) / (MID - LOW)) * 15;      // 50 → 65
+  if (rms <= HIGH) return 65 + ((rms - MID) / (HIGH - MID)) * 10;    // 65 → 75
+  const over = Math.max(0, rms - HIGH);
+  return Math.min(95, 75 + Math.log10(over + 1) * 12);
+}
+
 /** Map ArduinoToJson.ino output to server /api/sensor-data metrics */
 function arduinoToJsonToMetrics(p) {
   const tempF = (p.temp_c != null) ? (p.temp_c * 9 / 5 + 32) : 72;
@@ -75,11 +99,12 @@ function arduinoToJsonToMetrics(p) {
   const cRaw = typeof p.color?.c === 'number' ? p.color.c : -1;
   const c = cRaw >= 0 ? cRaw : 15000;
   const lightLux = Math.max(0, Math.min(500, Math.round((c / 65535) * 500 * 10) / 10));
-  // Gentler noise scale: mic_rms is uncalibrated, so map to a stable 50–85 dBA range (room-like)
+  // PDM mic: gradual curve so conversation shows mid-range; smooth so it doesn't snap to silence
   const micRms = p.mic_rms ?? 0;
-  const noiseDba = micRms < 0.5
-    ? 50
-    : Math.min(95, Math.max(45, 50 + Math.log10(micRms + 1) * 12));
+  const rawDba = micRmsToDba(micRms);
+  const SMOOTH_ALPHA = 0.4; // respond in ~2–3 samples, decay slowly when quiet
+  smoothedNoiseDba = SMOOTH_ALPHA * rawDba + (1 - SMOOTH_ALPHA) * smoothedNoiseDba;
+  const noiseDba = Math.round(smoothedNoiseDba * 10) / 10;
   // LSM9DS1 magnetometer: magnitude in µT (optional for risk)
   const mag_uT = typeof p.mag?.mag_uT === 'number' && !Number.isNaN(p.mag.mag_uT) ? p.mag.mag_uT : null;
 
@@ -87,7 +112,7 @@ function arduinoToJsonToMetrics(p) {
     temperature: tempF,
     humidity: estimateHumidity(p.temp_c ?? 22, pressureHpa),
     airQuality: estimateAirQuality(micRms),
-    noise: Math.round(noiseDba * 10) / 10,
+    noise: noiseDba,
     lighting: lightLux,
     pressure: pressureHpa,
     vibration,
