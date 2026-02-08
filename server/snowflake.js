@@ -157,9 +157,17 @@ function getWeekNumber(d) {
 
 /**
  * Get session data and generate AI health warnings using Snowflake Cortex
- * Analyzes all readings from the last session period (default: last 24 hours)
+ * 
+ * WHAT IT DOES:
+ * 1. Queries ALL sensor readings from Snowflake database for the company
+ * 2. Analyzes every reading to find metrics outside safe ranges
+ * 3. Calculates violation rates and average values for each metric
+ * 4. Uses Snowflake Cortex AI (COMPLETE function) to generate specific health warnings
+ * 5. Returns warnings explaining health risks (e.g., "high temperature can lead to heart disease")
+ * 
+ * This provides a comprehensive end-of-session health analysis using the FULL database.
  */
-async function getSessionAnalysis(companyId, hoursBack = 24) {
+async function getSessionAnalysis(companyId, useAllData = true, hoursBack = null) {
   if (!isEnabled()) {
     return { warnings: [], summary: 'Snowflake not configured' };
   }
@@ -169,24 +177,46 @@ async function getSessionAnalysis(companyId, hoursBack = 24) {
     return { warnings: [], summary: 'Snowflake connection failed' };
   }
 
-  // Get all sensor readings from the session period
-  const startTime = new Date(Date.now() - hoursBack * 60 * 60 * 1000).toISOString();
+  // Build SQL query - use ALL data if useAllData is true, otherwise filter by time
+  let sql;
+  let binds;
   
-  const sql = `
-    SELECT 
-      reading_timestamp,
-      temperature_f,
-      humidity_pct,
-      co2_ppm,
-      noise_dba,
-      light_lux,
-      pressure_kpa
-    FROM RAW.SENSOR_READINGS_RAW
-    WHERE factory_id = ?
-      AND reading_timestamp >= ?::TIMESTAMP_NTZ
-    ORDER BY reading_timestamp DESC
-    LIMIT 1000
-  `;
+  if (useAllData) {
+    // Query ALL data from database (no time limit)
+    sql = `
+      SELECT 
+        reading_timestamp,
+        temperature_f,
+        humidity_pct,
+        co2_ppm,
+        noise_dba,
+        light_lux,
+        pressure_kpa
+      FROM RAW.SENSOR_READINGS_RAW
+      WHERE factory_id = ?
+      ORDER BY reading_timestamp DESC
+    `;
+    binds = [companyId];
+  } else {
+    // Query data from specific time period
+    const startTime = new Date(Date.now() - (hoursBack || 24) * 60 * 60 * 1000).toISOString();
+    sql = `
+      SELECT 
+        reading_timestamp,
+        temperature_f,
+        humidity_pct,
+        co2_ppm,
+        noise_dba,
+        light_lux,
+        pressure_kpa
+      FROM RAW.SENSOR_READINGS_RAW
+      WHERE factory_id = ?
+        AND reading_timestamp >= ?::TIMESTAMP_NTZ
+      ORDER BY reading_timestamp DESC
+      LIMIT 1000
+    `;
+    binds = [companyId, startTime];
+  }
 
   return new Promise((resolve, reject) => {
     conn.execute({
@@ -200,18 +230,31 @@ async function getSessionAnalysis(companyId, hoursBack = 24) {
         }
 
         if (rows.length === 0) {
-          resolve({ warnings: [], summary: 'No data found for this session period' });
+          resolve({ 
+            warnings: [], 
+            summary: 'No data found in database for this company',
+            totalReadings: 0
+          });
           return;
         }
 
-        // Analyze data to find bad scores
+        // Get date range of data
+        const firstReading = rows[rows.length - 1];
+        const lastReading = rows[0];
+        const dateRange = useAllData 
+          ? `from ${new Date(firstReading.READING_TIMESTAMP).toLocaleDateString()} to ${new Date(lastReading.READING_TIMESTAMP).toLocaleDateString()}`
+          : `last ${hoursBack || 24} hours`;
+
+        // Analyze ALL data to find bad scores
         const badMetrics = analyzeBadScores(rows);
         
         if (badMetrics.length === 0) {
           resolve({ 
             warnings: [], 
-            summary: 'All metrics within safe ranges! Great job maintaining safe working conditions.',
-            totalReadings: rows.length 
+            summary: `All metrics within safe ranges! Great job maintaining safe working conditions.`,
+            totalReadings: rows.length,
+            dateRange: useAllData ? dateRange : undefined,
+            analyzedAllData: useAllData
           });
           return;
         }
@@ -221,9 +264,11 @@ async function getSessionAnalysis(companyId, hoursBack = 24) {
         
         resolve({
           warnings,
-          summary: `Analyzed ${rows.length} readings. Found ${badMetrics.length} metric(s) with safety concerns.`,
+          summary: `Analyzed ${rows.length} readings ${dateRange}. Found ${badMetrics.length} metric(s) with safety concerns.`,
           totalReadings: rows.length,
-          sessionPeriod: `${hoursBack} hours`,
+          dateRange: useAllData ? dateRange : undefined,
+          analyzedAllData: useAllData,
+          sessionPeriod: useAllData ? 'All historical data' : `${hoursBack || 24} hours`,
         });
       },
     });

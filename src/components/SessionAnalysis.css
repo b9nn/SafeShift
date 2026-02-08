@@ -21,10 +21,33 @@
   font-size: 1.5rem;
 }
 
+.analysis-description {
+  margin: 8px 0 0 0;
+  font-size: 0.9rem;
+  color: #666;
+  max-width: 500px;
+}
+
 .analysis-controls {
   display: flex;
   gap: 12px;
   align-items: center;
+  flex-wrap: wrap;
+}
+
+.data-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: #555;
+  cursor: pointer;
+}
+
+.data-toggle input[type="checkbox"] {
+  cursor: pointer;
+  width: 18px;
+  height: 18px;
 }
 
 .time-select {
@@ -92,6 +115,16 @@
   font-size: 0.9rem;
   color: #666;
   margin-top: 8px;
+}
+
+.all-data-badge {
+  background: #2196F3;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-left: 4px;
 }
 
 .analysis-success {

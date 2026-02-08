@@ -2,7 +2,18 @@
 
 ## Overview
 
-At the end of a monitoring session, SafeShift analyzes all sensor data from Snowflake and generates AI-powered health warnings for any metrics that were outside safe ranges. This uses **Snowflake Cortex COMPLETE** to generate specific, actionable health warnings.
+**WHAT IT DOES:**
+
+At the end of a monitoring session, SafeShift performs a **comprehensive analysis of ALL sensor data** stored in the Snowflake database. It:
+
+1. **Queries the FULL database** - Retrieves every sensor reading ever recorded for the company
+2. **Analyzes all readings** - Checks each reading against OSHA safety thresholds
+3. **Identifies bad scores** - Finds metrics where >10% of readings violate safe ranges
+4. **Generates AI health warnings** - Uses **Snowflake Cortex COMPLETE** (AI) to create specific warnings like:
+   - "High temperatures can lead to heat stress, dehydration, and cardiovascular strain. Prolonged exposure increases risk of heat exhaustion, heat stroke, and can exacerbate existing heart conditions."
+5. **Displays actionable insights** - Shows warnings with severity levels and recommendations
+
+This provides a **complete end-of-session health report** using the entire historical database, not just recent data.
 
 ---
 
@@ -10,8 +21,9 @@ At the end of a monitoring session, SafeShift analyzes all sensor data from Snow
 
 ### 1. **Data Collection**
 - Queries Snowflake `RAW.SENSOR_READINGS_RAW` table
-- Retrieves all readings for a company from the session period (default: last 24 hours)
-- Analyzes up to 1000 most recent readings
+- **By default: Retrieves ALL readings** for the company (no time limit)
+- Optionally: Can filter to specific time period (last 1h, 6h, 24h, 7 days)
+- Analyzes every reading in the database for comprehensive analysis
 
 ### 2. **Bad Score Detection**
 - Compares readings against safety thresholds:
@@ -45,7 +57,8 @@ At the end of a monitoring session, SafeShift analyzes all sensor data from Snow
 ### `GET /api/session-analysis/:companyId`
 
 **Query Parameters:**
-- `hours` (optional): Number of hours to analyze (default: 24)
+- `all` (optional): `true` to analyze ALL database data (default: `true`), `false` for time-limited analysis
+- `hours` (optional): If `all=false`, number of hours to analyze (default: 24)
 
 **Response:**
 ```json

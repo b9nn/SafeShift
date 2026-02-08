@@ -29,14 +29,19 @@ const SessionAnalysis = ({ company }: SessionAnalysisProps) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [useAllData, setUseAllData] = useState(true);
+
   const fetchAnalysis = async (hoursBack = 24) => {
     setLoading(true);
     setError(null);
     
     try {
-      const response = await fetch(
-        `http://localhost:3001/api/session-analysis/${company.id}?hours=${hoursBack}`
-      );
+      // Use all data by default, or specific time period if useAllData is false
+      const url = useAllData
+        ? `http://localhost:3001/api/session-analysis/${company.id}?all=true`
+        : `http://localhost:3001/api/session-analysis/${company.id}?all=false&hours=${hoursBack}`;
+      
+      const response = await fetch(url);
       
       if (!response.ok) {
         throw new Error('Failed to fetch session analysis');
@@ -94,20 +99,40 @@ const SessionAnalysis = ({ company }: SessionAnalysisProps) => {
   return (
     <div className="session-analysis">
       <div className="analysis-header">
-        <h3>📋 Session Health Analysis</h3>
+        <div>
+          <h3>📋 Session Health Analysis</h3>
+          <p className="analysis-description">
+            Analyzes <strong>ALL data</strong> from Snowflake database to identify safety concerns and generate AI-powered health warnings.
+          </p>
+        </div>
         <div className="analysis-controls">
-          <select 
-            onChange={(e) => fetchAnalysis(parseInt(e.target.value))}
-            className="time-select"
-            defaultValue="24"
-          >
-            <option value="1">Last 1 hour</option>
-            <option value="6">Last 6 hours</option>
-            <option value="24">Last 24 hours</option>
-            <option value="168">Last 7 days</option>
-          </select>
+          <label className="data-toggle">
+            <input
+              type="checkbox"
+              checked={useAllData}
+              onChange={(e) => {
+                setUseAllData(e.target.checked);
+                if (!e.target.checked) {
+                  fetchAnalysis(24);
+                }
+              }}
+            />
+            <span>Analyze ALL database data</span>
+          </label>
+          {!useAllData && (
+            <select 
+              onChange={(e) => fetchAnalysis(parseInt(e.target.value))}
+              className="time-select"
+              defaultValue="24"
+            >
+              <option value="1">Last 1 hour</option>
+              <option value="6">Last 6 hours</option>
+              <option value="24">Last 24 hours</option>
+              <option value="168">Last 7 days</option>
+            </select>
+          )}
           <button onClick={() => fetchAnalysis()} className="refresh-btn">
-            🔄 Refresh
+            🔄 {useAllData ? 'Analyze All Data' : 'Refresh'}
           </button>
         </div>
       </div>
@@ -125,8 +150,16 @@ const SessionAnalysis = ({ company }: SessionAnalysisProps) => {
             <p>{analysis.summary}</p>
             {analysis.totalReadings && (
               <p className="analysis-stats">
-                📊 {analysis.totalReadings} readings analyzed
-                {analysis.sessionPeriod && ` • ${analysis.sessionPeriod}`}
+                📊 {analysis.totalReadings.toLocaleString()} readings analyzed
+                {analysis.analyzedAllData && (
+                  <span className="all-data-badge"> • Full Database Analysis</span>
+                )}
+                {analysis.dateRange && (
+                  <span> • {analysis.dateRange}</span>
+                )}
+                {analysis.sessionPeriod && !analysis.analyzedAllData && (
+                  <span> • {analysis.sessionPeriod}</span>
+                )}
               </p>
             )}
           </div>

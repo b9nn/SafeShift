@@ -354,10 +354,21 @@ app.get('/api/rewards', (req, res) => {
 /**
  * GET /api/session-analysis/:companyId
  * Get AI-powered session analysis with health warnings
+ * 
+ * WHAT IT DOES:
+ * 1. Queries ALL sensor data from Snowflake database for the company
+ * 2. Analyzes every reading to identify metrics outside safe ranges
+ * 3. Uses Snowflake Cortex AI to generate specific health warnings
+ * 4. Returns comprehensive health analysis with actionable recommendations
+ * 
+ * Query Parameters:
+ * - all=true: Analyze ALL data in database (default: true)
+ * - hours=N: If all=false, analyze last N hours (default: 24)
  */
 app.get('/api/session-analysis/:companyId', async (req, res) => {
   try {
     const { companyId } = req.params;
+    const useAllData = req.query.all !== 'false'; // Default to true
     const hoursBack = parseInt(req.query.hours) || 24;
 
     if (!companyId) {
@@ -369,9 +380,10 @@ app.get('/api/session-analysis/:companyId', async (req, res) => {
       return res.status(404).json({ error: 'Company not found' });
     }
 
-    console.log(`📊 Generating session analysis for ${companyId} (last ${hoursBack} hours)`);
+    const analysisType = useAllData ? 'ALL database data' : `last ${hoursBack} hours`;
+    console.log(`📊 Generating session analysis for ${companyId} (${analysisType})`);
 
-    const analysis = await snowflake.getSessionAnalysis(companyId, hoursBack);
+    const analysis = await snowflake.getSessionAnalysis(companyId, useAllData, hoursBack);
 
     res.json({
       success: true,
