@@ -5,7 +5,8 @@
  * 1. Register company
  * 2. Send sensor data (safe conditions)
  * 3. Verify response (risk score, reward sent)
- * 4. Optionally verify Snowflake has data
+ * 4. NLP verbal abuse detection (safe + abusive text)
+ * 5. Optionally verify Snowflake has data
  *
  * Usage: node scripts/test-e2e.js [--snowflake]
  * Env: SERVER_URL (default http://localhost:3001)
@@ -119,9 +120,54 @@ async function main() {
     failed++;
   }
 
-  // Step 4: Snowflake verification (optional)
+  // Step 4: NLP verbal abuse detection
+  console.log('4. NLP verbal abuse detection...');
+  try {
+    // 4a: Safe text — should NOT be flagged
+    const safeRes = await fetch(`${SERVER_URL}/api/report-abuse`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: 'Good morning, how is the production line running today?',
+        companyId: 'e2e-test-company',
+      }),
+    });
+    const safeData = await safeRes.json();
+
+    if (safeData.success && !safeData.analysis.is_abusive) {
+      console.log(`   ✅ Safe text: not flagged (severity: ${safeData.analysis.severity})`);
+      passed++;
+    } else {
+      console.log(`   ⚠️  Safe text incorrectly flagged as abusive`);
+      failed++;
+    }
+
+    // 4b: Abusive text — should be flagged
+    const abuseRes = await fetch(`${SERVER_URL}/api/report-abuse`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: 'You are an idiot, get back to work or you are fired!',
+        companyId: 'e2e-test-company',
+      }),
+    });
+    const abuseData = await abuseRes.json();
+
+    if (abuseData.success && abuseData.analysis.is_abusive) {
+      console.log(`   ✅ Abusive text: flagged (severity: ${abuseData.analysis.severity}, categories: ${abuseData.analysis.flagged_categories.join(', ')})`);
+      passed++;
+    } else {
+      console.log(`   ⚠️  Abusive text not flagged (severity: ${abuseData.analysis?.severity})`);
+      failed++;
+    }
+    console.log('');
+  } catch (e) {
+    console.log(`   ⚠️  NLP test skipped: ${e.message} (is ML API running?)\n`);
+  }
+
+  // Step 5: Snowflake verification (optional)
   if (VERIFY_SNOWFLAKE) {
-    console.log('4. Snowflake verification...');
+    console.log('5. Snowflake verification...');
     console.log('   Run in Snowflake: snowflake/11_verify_bridge_data.sql');
     console.log('   Or check tables: RAW.SENSOR_READINGS_RAW, RAW.ML_RISK_SCORES, BLOCKCHAIN.REWARD_PAYOUTS\n');
   }

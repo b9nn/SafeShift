@@ -30,8 +30,13 @@ export interface SafetyReport {
   metrics: {
     temperature: number;
     humidity: number;
-    airQuality: number;
     noise: number;
     lighting: number;
+    pressure?: number;
+    vibration?: number;
+    magnetic_uT?: number;
   };
+  riskScore?: string;
+  confidence?: string;
+  isSafe?: boolean;
 }

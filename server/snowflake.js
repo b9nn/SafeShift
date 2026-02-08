@@ -148,6 +148,60 @@ async function insertRewardPayout({ factoryId, solanaTxHash, rewardAmountSOL, ri
   }).catch(() => {});
 }
 
+/**
+ * Insert abuse report metadata into GOVERNANCE.ABUSE_REPORTS
+ * No text is stored — only the analysis results (privacy by design).
+ */
+let abuseTableCreated = false;
+async function insertAbuseReport({ factoryId, workerId, isAbusive, severity, flaggedCategories }) {
+  if (!isEnabled()) return;
+  const conn = await getConnection();
+  if (!conn) return;
+
+  // Create table on first use (idempotent)
+  if (!abuseTableCreated) {
+    await new Promise((resolve) => {
+      conn.execute({
+        sqlText: `
+          CREATE TABLE IF NOT EXISTS GOVERNANCE.ABUSE_REPORTS (
+            report_id NUMBER AUTOINCREMENT,
+            factory_id VARCHAR(100),
+            worker_id VARCHAR(100) DEFAULT 'anonymous',
+            is_abusive BOOLEAN,
+            severity FLOAT,
+            flagged_categories VARCHAR(500),
+            created_at TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+          )
+        `,
+        complete: (err) => {
+          if (!err) abuseTableCreated = true;
+          resolve();
+        },
+      });
+    });
+  }
+
+  const categories = Array.isArray(flaggedCategories) ? flaggedCategories.join(',') : '';
+
+  const sql = `
+    INSERT INTO GOVERNANCE.ABUSE_REPORTS (
+      factory_id, worker_id, is_abusive, severity, flagged_categories
+    ) VALUES (?, ?, ?, ?::FLOAT, ?)
+  `;
+  return new Promise((resolve, reject) => {
+    conn.execute({
+      sqlText: sql,
+      binds: [factoryId, workerId, isAbusive, severity, categories],
+      complete: (err) => {
+        if (err) {
+          console.warn('Snowflake insertAbuseReport failed:', err.message);
+          reject(err);
+        } else resolve();
+      },
+    });
+  }).catch(() => {});
+}
+
 function getWeekNumber(d) {
   d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
   d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
@@ -160,4 +214,5 @@ module.exports = {
   insertRawReading,
   insertMLRiskScore,
   insertRewardPayout,
+  insertAbuseReport,
 };

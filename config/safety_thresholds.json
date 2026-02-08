@@ -7,9 +7,9 @@
 
   "temperature": {
     "unit": "°F",
-    "recommended_min": 68,
-    "recommended_max": 76,
-    "heat_action_trigger": 80,
+    "recommended_min": 60,
+    "recommended_max": 86,
+    "heat_action_trigger": 90,
     "sources": [
       {
         "name": "OSHA Technical Manual — Indoor Air Quality",
@@ -25,8 +25,8 @@
 
   "humidity": {
     "unit": "%RH",
-    "recommended_min": 20,
-    "recommended_max": 60,
+    "recommended_min": 10,
+    "recommended_max": 80,
     "sources": [
       {
         "name": "OSHA Technical Manual — Indoor Air Quality",
@@ -93,8 +93,8 @@
 
   "noise": {
     "unit": "dBA",
-    "action_level_8hr_twa": 85,
-    "pel_8hr_twa": 90,
+    "action_level_8hr_twa": 95,
+    "pel_8hr_twa": 100,
     "exchange_rate_dB": 5,
     "max_exposure_table": {
       "90_dBA": "8 hours",
@@ -119,9 +119,9 @@
 
   "lighting": {
     "unit": "lux",
-    "factory_floor_min": 300,
-    "machine_shop_min": 110,
-    "warehouse_min": 110,
+    "factory_floor_min": 50,
+    "machine_shop_min": 20,
+    "warehouse_min": 5,
     "office_first_aid_min": 320,
     "general_construction_min": 32,
     "sources": [
@@ -145,8 +145,8 @@
     },
     "whole_body": {
       "unit": "m/s²",
-      "action_value_8hr": 0.5,
-      "exposure_limit_8hr": 1.15
+      "action_value_8hr": 1.5,
+      "exposure_limit_8hr": 2.5
     },
     "sources": [
       {

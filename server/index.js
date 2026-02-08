@@ -83,6 +83,7 @@ async function queryMLModel(sensorData) {
         noise: sensorData.noise,
         lighting: sensorData.lighting,
         pressure: sensorData.pressure ?? 1013.25,
+        ...(sensorData.magnetic_uT != null && { magnetic_uT: sensorData.magnetic_uT }),
       }),
     });
     if (!response.ok) throw new Error(`ML API ${response.status}: ${response.statusText}`);
@@ -99,7 +100,7 @@ async function queryMLModel(sensorData) {
 }
 
 function fallbackMLScore(sensorData) {
-  const { temperature, humidity, airQuality, noise, lighting } = sensorData;
+  const { temperature, humidity, airQuality, noise, lighting, magnetic_uT } = sensorData;
   let riskScore = 0;
   if (temperature < 68 || temperature > 76) riskScore += 0.1;
   if (temperature < 65 || temperature > 80) riskScore += 0.15;
@@ -107,6 +108,8 @@ function fallbackMLScore(sensorData) {
   if (airQuality > 1000) riskScore += Math.min(0.3, (airQuality - 1000) / 10000);
   if (noise > 85) riskScore += (noise - 85) / 500;
   if (lighting < 300) riskScore += (300 - lighting) / 3000;
+  // Strong magnetic field (e.g. > 80 µT) can indicate electrical/equipment issues
+  if (magnetic_uT != null && magnetic_uT > 80) riskScore += Math.min(0.15, (magnetic_uT - 80) / 1000);
   riskScore = Math.max(0, Math.min(1, riskScore));
   return {
     riskScore: riskScore.toFixed(4),
@@ -131,7 +134,7 @@ app.post('/api/sensor-data', async (req, res) => {
     }
 
     // Validate metrics
-    const { temperature, humidity, airQuality, noise, lighting, pressure } = metrics;
+    const { temperature, humidity, airQuality, noise, lighting, pressure, magnetic_uT } = metrics;
     if (temperature === undefined || humidity === undefined || 
         airQuality === undefined || noise === undefined || 
         lighting === undefined) {
@@ -151,7 +154,7 @@ app.post('/api/sensor-data', async (req, res) => {
       rawPayload: req.body,
     }).catch(() => {});
 
-    // Store latest sensor data
+    // Store latest sensor data (metrics + ML result added after prediction)
     sensorData.set(deviceId, {
       deviceId,
       companyId,
@@ -163,6 +166,7 @@ app.post('/api/sensor-data', async (req, res) => {
         noise,
         lighting,
         pressure: pressure || null,
+        ...(magnetic_uT != null && { magnetic_uT }),
       },
     });
 
@@ -174,6 +178,7 @@ app.post('/api/sensor-data', async (req, res) => {
       noise,
       lighting,
       pressure: pressure || 101.3, // Default atmospheric pressure
+      ...(magnetic_uT != null && { magnetic_uT }),
     });
 
     const riskScore = parseFloat(modelResponse.riskScore);
@@ -187,6 +192,14 @@ app.post('/api/sensor-data', async (req, res) => {
       riskScore: modelResponse.riskScore,
       confidence: modelResponse.confidence,
     }).catch(() => {});
+
+    // Attach ML result to stored sensor data so GET can expose it
+    const stored = sensorData.get(deviceId);
+    if (stored) {
+      stored.riskScore = modelResponse.riskScore;
+      stored.confidence = modelResponse.confidence;
+      stored.isSafe = isSafe;
+    }
 
     console.log(`🤖 ML Model Response: riskScore=${riskScore.toFixed(4)}, isSafe=${isSafe}`);
 
@@ -328,6 +341,18 @@ app.post('/api/register-company', (req, res) => {
 });
 
 /**
+ * GET /api/sensor-data/:deviceId
+ * Get latest sensor readings + ML risk for a device
+ */
+app.get('/api/sensor-data/:deviceId', (req, res) => {
+  const data = sensorData.get(req.params.deviceId);
+  if (!data) {
+    return res.json({ success: false, error: 'No data for device' });
+  }
+  res.json({ success: true, ...data });
+});
+
+/**
  * GET /api/companies
  * Get all registered companies
  */
@@ -349,6 +374,64 @@ app.get('/api/rewards', (req, res) => {
     rewards: rewardHistory.slice(-limit),
     total: rewardHistory.length,
   });
+});
+
+/**
+ * POST /api/report-abuse
+ * Opt-in worker text report — analyzed for verbal abuse via NLP (toxic-bert).
+ * Text is NOT stored anywhere (privacy by design).
+ */
+app.post('/api/report-abuse', async (req, res) => {
+  try {
+    const { text, companyId, factoryId, workerId } = req.body;
+
+    if (!text) {
+      return res.status(400).json({ error: 'Missing required field: text' });
+    }
+
+    const effectiveFactoryId = factoryId || companyId || 'unknown';
+
+    // Call FastAPI NLP endpoint
+    const response = await fetch(`${ML_API_URL}/analyze-text`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, factoryId: effectiveFactoryId, workerId }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`NLP API returned ${response.status}`);
+    }
+
+    const analysis = await response.json();
+
+    console.log(`📝 Abuse report for ${effectiveFactoryId}: is_abusive=${analysis.is_abusive}, severity=${analysis.severity}`);
+
+    // Snowflake: log abuse report metadata (fire-and-forget, no text stored)
+    snowflake.insertAbuseReport({
+      factoryId: effectiveFactoryId,
+      workerId: workerId || 'anonymous',
+      isAbusive: analysis.is_abusive,
+      severity: parseFloat(analysis.severity),
+      flaggedCategories: analysis.flagged_categories,
+    }).catch(() => {});
+
+    // Return analysis (without the original text)
+    res.json({
+      success: true,
+      analysis: {
+        is_abusive: analysis.is_abusive,
+        severity: analysis.severity,
+        flagged_categories: analysis.flagged_categories,
+        scores: analysis.scores,
+      },
+    });
+  } catch (error) {
+    console.error('Error analyzing text:', error.message);
+    res.status(500).json({
+      error: 'Analysis failed',
+      message: error.message,
+    });
+  }
 });
 
 /**

@@ -1,8 +1,10 @@
 """
-FastAPI server that wraps the trained LSTM autoencoder for real-time inference.
+FastAPI server for SafeShift ML inference.
 
-Josh's Express server calls POST /predict with sensor data.
-This returns { riskScore, confidence } in the format his server expects.
+Endpoints:
+    POST /predict       — LSTM autoencoder anomaly detection on sensor data
+    POST /analyze-text  — NLP verbal abuse detection on transcribed text
+    GET  /health        — Health check
 
 Usage:
     python -m src.api
@@ -20,6 +22,7 @@ import numpy as np
 import torch
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from typing import Optional
 from pydantic import BaseModel
 
 from src.config import MODELS_DIR, WINDOW_SIZE, HIDDEN_SIZE, NUM_LAYERS, get_threshold_bounds
@@ -49,6 +52,9 @@ model.eval()
 
 # Sliding window buffer — accumulates readings until we have a full window
 reading_buffer = deque(maxlen=WINDOW_SIZE)
+# Reset buffer after this many seconds without a request (so restarting the bridge gives fresh risk)
+BUFFER_RESET_IDLE_SEC = 30
+_last_request_time: Optional[float] = None
 
 # OSHA bounds for threshold violation checking
 bounds = get_threshold_bounds()
@@ -77,6 +83,7 @@ class SensorData(BaseModel):
     noise: float = 75.0             # dBA (not used by model yet)
     lighting: float = 350.0         # lux
     pressure: float = 1013.0        # hPa
+    magnetic_uT: Optional[float] = None  # LSM9DS1 magnetometer magnitude (µT), optional for risk
 
 
 class PredictResponse(BaseModel):
@@ -171,6 +178,13 @@ def predict(data: SensorData):
     Accumulates readings in a sliding window. Once enough readings
     arrive, runs the full model. With fewer readings, pads the window.
     """
+    global _last_request_time
+    now = time.time()
+    # If bridge/server was restarted, no requests for a while → clear buffer so risk "restarts"
+    if _last_request_time is not None and (now - _last_request_time) > BUFFER_RESET_IDLE_SEC:
+        reading_buffer.clear()
+    _last_request_time = now
+
     # Convert to feature row and add to buffer
     row = sensor_to_feature_row(data)
     reading_buffer.append(row)
@@ -193,6 +207,20 @@ def predict(data: SensorData):
     buffer_fullness = len(reading_buffer) / WINDOW_SIZE
     anomaly_score *= buffer_fullness
 
+    # Static dampening: when physical conditions are stable, the LSTM reconstruction
+    # error can be artificially high.  Instead of a hard cap that releases suddenly,
+    # smoothly blend: variance_trust goes from 0 (static) → 1 (dynamic) so risk
+    # can't jump from 0.09 to 0.47 in a single reading.
+    window_np = window_scaled.reshape(-1, window_scaled.shape[-1])
+    n_raw = min(4, window_np.shape[1])  # indices 0-3 = raw sensor values
+    if window_np.shape[0] >= 2 and n_raw > 0:
+        per_feature_std = np.nanstd(window_np[:, :n_raw], axis=0)
+        mean_std = float(np.nanmean(per_feature_std)) if per_feature_std.size else 1.0
+        # Smooth ramp: 0 at std=0, 1.0 at std>=0.1
+        variance_trust = min(1.0, mean_std / 0.1)
+        # Floor of 0.15 when fully static, full anomaly_score when dynamic
+        anomaly_score = 0.15 * (1 - variance_trust) + anomaly_score * variance_trust
+
     # Check threshold violations on raw (unscaled) values
     raw_row = row[:4]  # temp_c, humidity, pressure, light
     violations = 0
@@ -208,8 +236,13 @@ def predict(data: SensorData):
             checks += 1
     violation_ratio = violations / checks if checks > 0 else 0
 
+    # Optional: strong magnetic field (> 80 µT) can indicate electrical/equipment issues
+    mag_penalty = 0.0
+    if data.magnetic_uT is not None and data.magnetic_uT > 80:
+        mag_penalty = min(0.15, (data.magnetic_uT - 80) / 1000)
+
     # Combined risk: 0.0-1.0 (matching Josh's expected range)
-    risk_score = 0.6 * anomaly_score + 0.4 * violation_ratio
+    risk_score = 0.6 * anomaly_score + 0.4 * violation_ratio + mag_penalty
     risk_score = max(0.0, min(1.0, risk_score))
 
     # Confidence: higher when we have a full window
@@ -231,7 +264,59 @@ def health():
         "window_size": WINDOW_SIZE,
         "buffer_size": len(reading_buffer),
         "threshold": anomaly_threshold,
+        "nlp_loaded": _nlp_detector is not None,
     }
+
+
+# ---------------------------------------------------------------------------
+# NLP Verbal Abuse Detection
+# ---------------------------------------------------------------------------
+
+_nlp_detector = None
+
+
+def _get_nlp_detector():
+    """Lazy-load the NLP model (toxic-bert is ~500MB, only load when needed)."""
+    global _nlp_detector
+    if _nlp_detector is None:
+        print("Loading NLP verbal abuse detector (toxic-bert)...")
+        from src.nlp import VerbalAbuseDetector
+        _nlp_detector = VerbalAbuseDetector()
+        print("NLP model loaded.")
+    return _nlp_detector
+
+
+class TextAnalysisRequest(BaseModel):
+    text: str
+    factoryId: Optional[str] = None
+    workerId: Optional[str] = None
+
+
+class TextAnalysisResponse(BaseModel):
+    is_abusive: bool
+    severity: str
+    flagged_categories: list
+    scores: dict
+    timestamp: int
+
+
+@app.post("/analyze-text", response_model=TextAnalysisResponse)
+def analyze_text(data: TextAnalysisRequest):
+    """Classify transcribed text for verbal abuse using toxic-bert.
+
+    This is for opt-in worker reports only. The text is analyzed
+    and not stored — privacy by design.
+    """
+    detector = _get_nlp_detector()
+    result = detector.classify(data.text)
+
+    return TextAnalysisResponse(
+        is_abusive=result["is_abusive"],
+        severity=f"{result['severity']:.4f}",
+        flagged_categories=result["flagged"],
+        scores=result["scores"],
+        timestamp=int(time.time() * 1000),
+    )
 
 
 if __name__ == "__main__":

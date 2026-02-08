@@ -2,6 +2,8 @@
 
 This guide covers the three bridges: Arduino → Express, Express → ML API, and Express → Snowflake.
 
+**For step-by-step Arduino live data setup**, see [ARDUINO-PIPELINE-SETUP.md](ARDUINO-PIPELINE-SETUP.md).
+
 ---
 
 ## Workflow
@@ -60,18 +62,18 @@ If env vars are not set, Snowflake writes are skipped (no errors).
 
 ## 3. Arduino → Express (Bridge #1)
 
-**Arduino sketch:** `SafeShiftArduino/SafeShiftArduino.ino`
+**Arduino sketch:** `ArduinoToJson/ArduinoToJson.ino` (the project’s Arduino file)
 
 - Board: Arduino Nano 33 BLE Sense
-- Reads: temp (HTS221), humidity (HTS221), pressure (LPS22HB), light (APDS9960), noise (mic), vibration (LSM9DS1)
-- Outputs JSON over Serial every 2 seconds
+- Reads: temp (LPS22HB), pressure (LPS22HB), light/proximity/gesture (APDS9960), accel/gyro/mag (LSM9DS1), noise (PDM mic)
+- Outputs JSON over Serial every 200 ms (`ts_ms`, `temp_c`, `pressure_hPa`, `accel`, `color`, `mic_rms`, etc.)
 
 **Serial bridge:** `scripts/serial-bridge.js`
 
-Reads Serial and POSTs to Express.
+Reads Serial, maps ArduinoToJson format to server metrics, and POSTs to Express. Adds default `deviceId`/`companyId` if not present.
 
 **To run:**
-1. Flash the sketch to the Nano 33 BLE Sense
+1. Flash `ArduinoToJson/ArduinoToJson.ino` to the Nano 33 BLE Sense
 2. Connect via USB
 3. Run the bridge:
    ```bash
@@ -80,7 +82,7 @@ Reads Serial and POSTs to Express.
    ```
 4. Ensure Express server is running (`npm run server`)
 
-**Configure device/company:** Edit `SafeShiftArduino.ino` and change `deviceId` and `companyId` in the JSON output.
+**Configure device/company:** Set env vars `DEVICE_ID` and `COMPANY_ID` when running the bridge (defaults: `arduino-001`, `company-001`).
 
 ---
 

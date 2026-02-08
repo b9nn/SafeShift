@@ -16,7 +16,7 @@ void onPDMdata() { //sensor triggers this function - runs every time mic has dat
   micSamplesRead = bytesToRead / 2; // shorts - each short is 2 bytes
 } //function copies audio into buffer and tells main program how many samples are ready
 
-float micRmsOnce() { //sound levels - turns sound numbers into 1 loudness number
+float micRmsOnce() { //sound levels - turns sound nummbers into 1 loudness number
   if (micSamplesRead <= 0) return 0.0f;
   double sumSq = 0;
   for (int i = 0; i < micSamplesRead; i++) {
@@ -78,6 +78,10 @@ void setup() { //runs on initial turning on
   if (ok) Serial.println("{\"status\":\"all sensors ready\"}");
 }
 
+// Persist last valid color reading across loop iterations
+// (APDS9960 color has slow integration time, often unavailable on a given cycle)
+int lastR = -1, lastG = -1, lastB = -1, lastC = -1;
+
 void loop() {
   //pressure and temp
   float pressure_hPa = BARO.readPressure();
@@ -86,11 +90,10 @@ void loop() {
   //proximity
   int prox = APDS.readProximity();
 
-  int r = -1, g = -1, b = -1, c = -1; //default colour values
   if (APDS.colorAvailable()) {
-    //read colours
-    APDS.readColor(r, g, b, c);
+    APDS.readColor(lastR, lastG, lastB, lastC);
   }
+  int r = lastR, g = lastG, b = lastB, c = lastC;
 
   const char* gesture = "NONE";
   if (APDS.gestureAvailable()) {

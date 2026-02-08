@@ -36,9 +36,11 @@ export interface SafetyScore {
   metrics: {
     temperature: number;
     humidity: number;
-    airQuality: number;
     noise: number;
     lighting: number;
+    pressure?: number;
+    vibration?: number;
+    magnetic_uT?: number;
   };
 }
 
