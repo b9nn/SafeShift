@@ -69,12 +69,11 @@ async function insertRawReading({ factoryId, sensorNodeId, timestamp, metrics, r
       temperature_f, humidity_pct, co2_ppm, pm25_mg_m3, pm10_mg_m3, voc_mg_m3,
       noise_dba, light_lux, vibration_ms2, proximity_value, pressure_kpa,
       raw_payload
-    ) VALUES (
-      ?, ?, ?::TIMESTAMP_NTZ,
+    )
+    SELECT ?, ?, ?::TIMESTAMP_NTZ,
       ?, ?, ?, NULL, NULL, NULL,
       ?, ?, ?, NULL, ?,
       PARSE_JSON(?)
-    )
   `;
   return new Promise((resolve, reject) => {
     conn.execute({

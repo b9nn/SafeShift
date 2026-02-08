@@ -238,7 +238,7 @@ app.post('/api/sensor-data', async (req, res) => {
             snowflake.insertRewardPayout({
               factoryId: companyId,
               solanaTxHash: transactionSignature,
-              rewardAmountSOL,
+              rewardAmountSOL: rewardAmount,
               riskScore,
             }).catch(() => {});
 

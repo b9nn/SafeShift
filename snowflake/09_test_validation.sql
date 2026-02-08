@@ -61,15 +61,16 @@ SHOW WAREHOUSES LIKE 'CORTEX_WH';
 USE SCHEMA ANALYTICS;
 
 -- Test compliance score computation
+-- Params: temperature_c, humidity_pct, noise_dba, light_lux, vibration_ms2
 SELECT 'TEST 6a: COMPUTE_COMPLIANCE_SCORE' AS test_name,
     -- Perfect conditions: should return 100
-    COMPUTE_COMPLIANCE_SCORE(22, 40, 400, 1.0, 70, 500, 1.0) AS perfect_score,
-    IFF(COMPUTE_COMPLIANCE_SCORE(22, 40, 400, 1.0, 70, 500, 1.0) = 100, 'PASS', 'FAIL') AS result;
+    COMPUTE_COMPLIANCE_SCORE(22, 40, 70, 500, 1.0) AS perfect_score,
+    IFF(COMPUTE_COMPLIANCE_SCORE(22, 40, 70, 500, 1.0) = 100, 'PASS', 'FAIL') AS result;
 
 SELECT 'TEST 6b: COMPUTE_COMPLIANCE_SCORE (bad)' AS test_name,
     -- Terrible conditions: should be well below 100
-    COMPUTE_COMPLIANCE_SCORE(35, 80, 6000, 10.0, 95, 50, 6.0) AS bad_score,
-    IFF(COMPUTE_COMPLIANCE_SCORE(35, 80, 6000, 10.0, 95, 50, 6.0) < 30, 'PASS', 'FAIL') AS result;
+    COMPUTE_COMPLIANCE_SCORE(35, 80, 95, 50, 6.0) AS bad_score,
+    IFF(COMPUTE_COMPLIANCE_SCORE(35, 80, 95, 50, 6.0) < 30, 'PASS', 'FAIL') AS result;
 
 -- Test risk classification
 SELECT 'TEST 6c: CLASSIFY_RISK_LEVEL' AS test_name,
@@ -142,7 +143,7 @@ SHOW TASKS IN DATABASE SAFE_SHIFT;
 -- =====================================================================
 SHOW ALERTS IN DATABASE SAFE_SHIFT;
 -- Should show: ALERT_CRITICAL_RISK, ALERT_SENSOR_OFFLINE,
---              ALERT_CO2_DANGER, ALERT_SHIFT_VIOLATION
+--              ALERT_NOISE_DANGER
 
 -- =====================================================================
 -- TEST 12: Verify dynamic tables exist
@@ -162,26 +163,27 @@ SHOW SNOWFLAKE.ML.FORECAST IN SCHEMA ML;
 -- =====================================================================
 USE SCHEMA RAW;
 
--- Insert test sensor readings
+-- Insert test sensor readings (using SELECT instead of VALUES to allow function calls)
 INSERT INTO SENSOR_READINGS_RAW (
     factory_id, sensor_node_id, reading_timestamp,
     temperature_f, humidity_pct, co2_ppm, pm25_mg_m3, pm10_mg_m3,
     voc_mg_m3, noise_dba, light_lux, vibration_ms2, proximity_value,
     pressure_kpa, raw_payload
 )
-VALUES
-    -- Good conditions
-    ('TEST_FACTORY_01', 'NODE_A1', CURRENT_TIMESTAMP(),
+-- Good conditions
+SELECT 'TEST_FACTORY_01', 'NODE_A1', CURRENT_TIMESTAMP(),
      72, 45, 450, 1.2, 3.0, 0.2, 65, 500, 0.8, 100, 101.3,
-     PARSE_JSON('{"test": true, "condition": "good"}')),
-    -- Marginal conditions
-    ('TEST_FACTORY_01', 'NODE_A1', DATEADD('MINUTE', -5, CURRENT_TIMESTAMP()),
+     PARSE_JSON('{"test": true, "condition": "good"}')
+UNION ALL
+-- Marginal conditions
+SELECT 'TEST_FACTORY_01', 'NODE_A1', DATEADD('MINUTE', -5, CURRENT_TIMESTAMP()),
      78, 55, 950, 4.0, 8.0, 0.4, 82, 320, 2.0, 50, 101.0,
-     PARSE_JSON('{"test": true, "condition": "marginal"}')),
-    -- Bad conditions (multiple threshold breaches)
-    ('TEST_FACTORY_02', 'NODE_B1', CURRENT_TIMESTAMP(),
+     PARSE_JSON('{"test": true, "condition": "marginal"}')
+UNION ALL
+-- Bad conditions (multiple threshold breaches)
+SELECT 'TEST_FACTORY_02', 'NODE_B1', CURRENT_TIMESTAMP(),
      95, 75, 6000, 8.0, 20.0, 1.5, 98, 80, 6.5, 20, 100.5,
-     PARSE_JSON('{"test": true, "condition": "dangerous"}'));
+     PARSE_JSON('{"test": true, "condition": "dangerous"}');
 
 SELECT 'TEST 14: Synthetic data insert' AS test_name,
     COUNT(*) AS inserted,
@@ -287,13 +289,13 @@ SELECT
     AVG(light_lux),
     AVG(vibration_ms2),
     COMPUTE_COMPLIANCE_SCORE(
-        AVG(temperature_c), AVG(humidity_pct), AVG(co2_ppm),
-        AVG(pm25_mg_m3), AVG(noise_dba), AVG(light_lux), AVG(vibration_ms2)
+        AVG(temperature_c), AVG(humidity_pct),
+        AVG(noise_dba), AVG(light_lux), AVG(vibration_ms2)
     ),
     CLASSIFY_RISK_LEVEL(
         COMPUTE_COMPLIANCE_SCORE(
-            AVG(temperature_c), AVG(humidity_pct), AVG(co2_ppm),
-            AVG(pm25_mg_m3), AVG(noise_dba), AVG(light_lux), AVG(vibration_ms2)
+            AVG(temperature_c), AVG(humidity_pct),
+            AVG(noise_dba), AVG(light_lux), AVG(vibration_ms2)
         )
     )
 FROM STAGING.SENSOR_READINGS_CLEAN

@@ -895,28 +895,28 @@
         res := (
             WITH current_data AS (
                 SELECT
-                    AVG(co2_ppm) AS avg_co2, AVG(temperature_c) AS avg_temp,
-                    AVG(humidity_pct) AS avg_humidity, AVG(pm25_mg_m3) AS avg_pm25,
-                    AVG(noise_dba) AS avg_noise
+                    AVG(temperature_c) AS avg_temp,
+                    AVG(humidity_pct) AS avg_humidity,
+                    AVG(light_lux) AS avg_light,
+                    AVG(noise_dba) AS avg_noise,
+                    AVG(vibration_ms2) AS avg_vibration
                 FROM STAGING.SENSOR_READINGS_CLEAN
                 WHERE factory_id = :p_factory_id
                     AND reading_timestamp >= DATEADD('HOUR', -1, CURRENT_TIMESTAMP())
             ),
             past_data AS (
                 SELECT
-                    AVG(co2_ppm) AS avg_co2, AVG(temperature_c) AS avg_temp,
-                    AVG(humidity_pct) AS avg_humidity, AVG(pm25_mg_m3) AS avg_pm25,
-                    AVG(noise_dba) AS avg_noise
+                    AVG(temperature_c) AS avg_temp,
+                    AVG(humidity_pct) AS avg_humidity,
+                    AVG(light_lux) AS avg_light,
+                    AVG(noise_dba) AS avg_noise,
+                    AVG(vibration_ms2) AS avg_vibration
                 FROM STAGING.SENSOR_READINGS_CLEAN
                     AT(OFFSET => -60 * :p_minutes_ago)
                 WHERE factory_id = :p_factory_id
                     AND reading_timestamp >= DATEADD('HOUR', -1, CURRENT_TIMESTAMP())
             )
-            SELECT 'CO2 (ppm)' AS metric, c.avg_co2, p.avg_co2,
-                (c.avg_co2 - p.avg_co2) / NULLIF(p.avg_co2, 0) * 100
-            FROM current_data c, past_data p
-            UNION ALL
-            SELECT 'Temperature (C)', c.avg_temp, p.avg_temp,
+            SELECT 'Temperature (C)' AS metric, c.avg_temp, p.avg_temp,
                 (c.avg_temp - p.avg_temp) / NULLIF(p.avg_temp, 0) * 100
             FROM current_data c, past_data p
             UNION ALL
@@ -924,12 +924,16 @@
                 (c.avg_humidity - p.avg_humidity) / NULLIF(p.avg_humidity, 0) * 100
             FROM current_data c, past_data p
             UNION ALL
-            SELECT 'PM2.5 (mg/m3)', c.avg_pm25, p.avg_pm25,
-                (c.avg_pm25 - p.avg_pm25) / NULLIF(p.avg_pm25, 0) * 100
+            SELECT 'Light (lux)', c.avg_light, p.avg_light,
+                (c.avg_light - p.avg_light) / NULLIF(p.avg_light, 0) * 100
             FROM current_data c, past_data p
             UNION ALL
             SELECT 'Noise (dBA)', c.avg_noise, p.avg_noise,
                 (c.avg_noise - p.avg_noise) / NULLIF(p.avg_noise, 0) * 100
+            FROM current_data c, past_data p
+            UNION ALL
+            SELECT 'Vibration (m/s2)', c.avg_vibration, p.avg_vibration,
+                (c.avg_vibration - p.avg_vibration) / NULLIF(p.avg_vibration, 0) * 100
             FROM current_data c, past_data p
         );
         RETURN TABLE(res);
@@ -1042,34 +1046,35 @@
     AS
         INSERT INTO ML.FEATURE_STORE (
             feature_timestamp, factory_id,
-            co2_1h_avg, co2_1h_std, co2_24h_avg, co2_24h_max,
             temp_1h_avg, temp_1h_std, temp_24h_avg,
-            humidity_1h_avg, pm25_1h_avg, pm25_24h_max,
+            humidity_1h_avg, humidity_1h_std, humidity_24h_avg,
+            light_1h_avg, light_1h_std, pressure_1h_avg,
             noise_1h_avg, noise_1h_max,
-            heat_index, air_quality_index, breach_rate_24h,
+            vibration_1h_avg, vibration_1h_max,
+            heat_index, breach_rate_24h,
             hour_of_day, day_of_week, is_weekend
         )
         SELECT
             DATE_TRUNC('HOUR', reading_timestamp) AS feature_timestamp,
             factory_id,
-            AVG(co2_ppm) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
-            STDDEV(co2_ppm) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
-            AVG(co2_ppm) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '24 HOURS' PRECEDING AND CURRENT ROW),
-            MAX(co2_ppm) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '24 HOURS' PRECEDING AND CURRENT ROW),
             AVG(temperature_c) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
             STDDEV(temperature_c) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
             AVG(temperature_c) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '24 HOURS' PRECEDING AND CURRENT ROW),
             AVG(humidity_pct) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
-            AVG(pm25_mg_m3) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
-            MAX(pm25_mg_m3) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '24 HOURS' PRECEDING AND CURRENT ROW),
+            STDDEV(humidity_pct) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
+            AVG(humidity_pct) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '24 HOURS' PRECEDING AND CURRENT ROW),
+            AVG(light_lux) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
+            STDDEV(light_lux) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
+            AVG(pressure_kpa) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
             AVG(noise_dba) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
             MAX(noise_dba) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
+            AVG(vibration_ms2) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
+            MAX(vibration_ms2) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
             -42.379 + 2.04901523 * ((temperature_c * 9/5) + 32)
                 + 10.14333127 * humidity_pct
                 - 0.22475541 * ((temperature_c * 9/5) + 32) * humidity_pct,
-            (COALESCE(co2_ppm / 1000, 0) + COALESCE(pm25_mg_m3 / 5.0, 0)
-                + COALESCE(voc_mg_m3 / 0.5, 0)) / 3.0 * 100,
-            SUM(IFF(co2_ppm > 1000 OR pm25_mg_m3 > 5.0 OR noise_dba > 85, 1, 0)) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '24 HOURS' PRECEDING AND CURRENT ROW)
+            SUM(IFF(temperature_c < 20 OR temperature_c > 24.4
+                OR noise_dba > 85 OR vibration_ms2 > 2.5, 1, 0)) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '24 HOURS' PRECEDING AND CURRENT ROW)
                 / NULLIF(COUNT(*) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '24 HOURS' PRECEDING AND CURRENT ROW), 0),
             HOUR(reading_timestamp),
             DAYOFWEEK(reading_timestamp),
@@ -1338,14 +1343,14 @@
     -- ---- Cortex ML Models (require training data — run 04_cortex_ml.sql after data load) ----
     -- ML models fail with "input_data is empty" when sensor tables are empty.
     -- Create empty placeholder tables here; run snowflake/04_cortex_ml.sql after loading data
-    -- to train models and populate ANOMALY_RESULTS, CO2_FORECAST_RESULTS, etc.
+    -- to train models and populate ANOMALY_RESULTS, TEMP_FORECAST_RESULTS, etc.
 
     CREATE TABLE IF NOT EXISTS ML.ANOMALY_RESULTS (
         SERIES VARIANT, TS TIMESTAMP_NTZ, Y FLOAT, FORECAST FLOAT,
         LOWER_BOUND FLOAT, UPPER_BOUND FLOAT, IS_ANOMALY BOOLEAN,
         PERCENTILE FLOAT, DISTANCE FLOAT
     );
-    CREATE TABLE IF NOT EXISTS ML.CO2_FORECAST_RESULTS (
+    CREATE TABLE IF NOT EXISTS ML.TEMP_FORECAST_RESULTS (
         SERIES VARIANT, TS TIMESTAMP_NTZ, FORECAST FLOAT,
         LOWER_BOUND FLOAT, UPPER_BOUND FLOAT
     );
@@ -1359,7 +1364,7 @@
                     'Explain this anomaly in simple terms for a factory manager. ',
                     'Include: what happened, potential causes, and recommended immediate actions. ',
                     'Factory: ', ar.SERIES::VARCHAR,
-                    ', Metric: CO2 (ppm), Is Anomaly: ', ar.is_anomaly::VARCHAR,
+                    ', Metric: Temperature (C), Is Anomaly: ', ar.is_anomaly::VARCHAR,
                     ', Percentile: ', ar.percentile::VARCHAR,
                     ', Distance from expected: ', ar.distance::VARCHAR)
             ) AS ai_explanation
