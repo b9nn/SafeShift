@@ -18,7 +18,7 @@ export default function SplashPage({ onAccessWallet }: SplashPageProps) {
     if (pageState !== 'splash') return;
     const interval = setInterval(() => {
       setActiveIndex((prev) => (prev + 1) % 2);
-    }, 3000);
+    }, 1800);
     return () => clearInterval(interval);
   }, [pageState]);
 

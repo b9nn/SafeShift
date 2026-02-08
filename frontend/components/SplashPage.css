@@ -53,9 +53,9 @@
 }
 
 .splash-title.title-corner {
-  top: 0.8rem;
-  left: calc(100vw - 7rem);
-  transform: translate(-50%, 0) scale(0.3);
+  top: 0.6rem;
+  left: calc(100vw - 6.5rem);
+  transform: translate(-50%, 0) scale(0.28);
 }
 
 /* ==========================================================================
