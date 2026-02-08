@@ -1,3 +1,18 @@
+/* ---------- Persistent SafeShift brand (top-right, all pages after splash) ---------- */
+.app-brand {
+  position: fixed;
+  top: 0.7rem;
+  right: 1rem;
+  z-index: 100;
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: #1a1a2e;
+  letter-spacing: -0.02em;
+  margin: 0;
+  pointer-events: none;
+}
+
 .App {
   min-height: 100vh;
   display: flex;

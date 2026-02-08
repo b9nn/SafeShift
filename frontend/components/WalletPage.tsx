@@ -9,8 +9,6 @@ export default function WalletPage({ onContinue }: WalletPageProps) {
     <div className="wallet-page">
       <div className="hex-bg" />
 
-      <h1 className="wallet-page-brand">SafeShift</h1>
-
       <div className="wallet-page-content">
         <div className="wallet-placeholder-card">
           <h2>Wallet Connected</h2>

@@ -71,8 +71,6 @@ export default function CompanyThresholds() {
     <div className="thresholds-page">
       <div className="hex-bg" />
 
-      <h1 className="thresholds-brand">SafeShift</h1>
-
       <div className="thresholds-content">
         <h2 className="thresholds-heading">Company Thresholds</h2>
 

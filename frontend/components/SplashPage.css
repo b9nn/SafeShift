@@ -27,7 +27,8 @@
 }
 
 /* ==========================================================================
-   SafeShift title – starts centered, transitions to top-right corner
+   SafeShift title – animates from center to top-right corner
+   Using right-based positioning so the transition is smooth end-to-end
    ========================================================================== */
 .splash-title {
   position: absolute;
@@ -41,21 +42,24 @@
   user-select: none;
   margin: 0;
 
-  /* Default: centered */
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -80%) scale(1);
+  /* Centered: use right + transform to position from center */
+  top: 42%;
+  right: 50%;
+  transform: translateX(50%);
   font-size: clamp(3.5rem, 8vw, 6rem);
 
   transition: top 0.8s cubic-bezier(0.4, 0, 0.2, 1),
-              left 0.8s cubic-bezier(0.4, 0, 0.2, 1),
-              transform 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+              right 0.8s cubic-bezier(0.4, 0, 0.2, 1),
+              transform 0.8s cubic-bezier(0.4, 0, 0.2, 1),
+              font-size 0.8s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* Matches .app-brand in App.css: top 0.7rem, right 1rem, font-size 1.6rem */
 .splash-title.title-corner {
-  top: 0.6rem;
-  left: calc(100vw - 6.5rem);
-  transform: translate(-50%, 0) scale(0.28);
+  top: 0.7rem;
+  right: 1rem;
+  transform: translateX(0);
+  font-size: 1.6rem;
 }
 
 /* ==========================================================================
@@ -69,7 +73,7 @@
   align-items: center;
   gap: 0.5rem;
   user-select: none;
-  margin-top: 5.5rem;
+  margin-top: 6.5rem;
   opacity: 1;
   transition: opacity 0.5s ease;
 }

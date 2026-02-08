@@ -10,15 +10,24 @@ type AppView = 'splash' | 'wallet' | 'thresholds';
 const AppContent = () => {
   const [view, setView] = useState<AppView>('splash');
 
-  if (view === 'splash') {
-    return <SplashPage onAccessWallet={() => setView('wallet')} />;
-  }
+  return (
+    <>
+      {/* Persistent SafeShift brand in top-right — shown from frame 2 onwards */}
+      {view !== 'splash' && (
+        <h1 className="app-brand">SafeShift</h1>
+      )}
 
-  if (view === 'wallet') {
-    return <WalletPage onContinue={() => setView('thresholds')} />;
-  }
-
-  return <CompanyThresholds />;
+      {view === 'splash' && (
+        <SplashPage onAccessWallet={() => setView('wallet')} />
+      )}
+      {view === 'wallet' && (
+        <WalletPage onContinue={() => setView('thresholds')} />
+      )}
+      {view === 'thresholds' && (
+        <CompanyThresholds />
+      )}
+    </>
+  );
 };
 
 function App() {
