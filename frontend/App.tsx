@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import './App.css'
+import SplashPage from './components/SplashPage'
 import Dashboard from './components/Dashboard'
 import CompanyRegistration from './components/CompanyRegistration'
 import CompanyList from './components/CompanyList'
@@ -9,6 +10,7 @@ import { Company } from './types/company'
 
 const AppContent = () => {
   const { isConnected } = useSolana();
+  const [showSplash, setShowSplash] = useState(true);
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [showRegistration, setShowRegistration] = useState(false);
 
@@ -16,6 +18,10 @@ const AppContent = () => {
     setSelectedCompany(company);
     setShowRegistration(false);
   };
+
+  if (showSplash) {
+    return <SplashPage onEnter={() => setShowSplash(false)} />;
+  }
 
   if (!isConnected) {
     return (
