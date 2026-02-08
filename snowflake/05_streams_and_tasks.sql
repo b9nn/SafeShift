@@ -208,38 +208,33 @@ AS
     SELECT
         DATE_TRUNC('HOUR', reading_timestamp) AS feature_timestamp,
         factory_id,
-        AVG(temperature_c) OVER w_1h,
-        STDDEV(temperature_c) OVER w_1h,
-        AVG(temperature_c) OVER w_24h,
-        AVG(humidity_pct) OVER w_1h,
-        STDDEV(humidity_pct) OVER w_1h,
-        AVG(humidity_pct) OVER w_24h,
-        AVG(light_lux) OVER w_1h,
-        STDDEV(light_lux) OVER w_1h,
-        AVG(pressure_kpa) OVER w_1h,
-        AVG(noise_dba) OVER w_1h,
-        MAX(noise_dba) OVER w_1h,
-        AVG(vibration_ms2) OVER w_1h,
-        MAX(vibration_ms2) OVER w_1h,
+        AVG(temperature_c) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
+        STDDEV(temperature_c) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
+        AVG(temperature_c) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '24 HOURS' PRECEDING AND CURRENT ROW),
+        AVG(humidity_pct) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
+        STDDEV(humidity_pct) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
+        AVG(humidity_pct) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '24 HOURS' PRECEDING AND CURRENT ROW),
+        AVG(light_lux) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
+        STDDEV(light_lux) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
+        AVG(pressure_kpa) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
+        AVG(noise_dba) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
+        MAX(noise_dba) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
+        AVG(vibration_ms2) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
+        MAX(vibration_ms2) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
         -- Heat index approximation (Rothfusz regression simplified)
         -42.379 + 2.04901523 * ((temperature_c * 9/5) + 32)
             + 10.14333127 * humidity_pct
             - 0.22475541 * ((temperature_c * 9/5) + 32) * humidity_pct,
         -- 24h breach rate (based on available Arduino sensors)
         SUM(IFF(temperature_c < 20 OR temperature_c > 24.4
-            OR noise_dba > 85 OR vibration_ms2 > 2.5, 1, 0)) OVER w_24h
-            / NULLIF(COUNT(*) OVER w_24h, 0),
+            OR noise_dba > 85 OR vibration_ms2 > 2.5, 1, 0)) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '24 HOURS' PRECEDING AND CURRENT ROW)
+            / NULLIF(COUNT(*) OVER (PARTITION BY factory_id ORDER BY reading_timestamp RANGE BETWEEN INTERVAL '24 HOURS' PRECEDING AND CURRENT ROW), 0),
         HOUR(reading_timestamp),
         DAYOFWEEK(reading_timestamp),
         DAYOFWEEK(reading_timestamp) IN (0, 6)
     FROM STAGING.SENSOR_READINGS_CLEAN
     WHERE is_valid = TRUE
         AND reading_timestamp >= DATEADD('DAY', -2, CURRENT_TIMESTAMP())
-    WINDOW
-        w_1h AS (PARTITION BY factory_id ORDER BY reading_timestamp
-                 RANGE BETWEEN INTERVAL '1 HOUR' PRECEDING AND CURRENT ROW),
-        w_24h AS (PARTITION BY factory_id ORDER BY reading_timestamp
-                  RANGE BETWEEN INTERVAL '24 HOURS' PRECEDING AND CURRENT ROW)
     QUALIFY ROW_NUMBER() OVER (
         PARTITION BY factory_id, DATE_TRUNC('HOUR', reading_timestamp)
         ORDER BY reading_timestamp DESC

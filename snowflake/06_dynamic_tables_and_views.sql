@@ -81,7 +81,7 @@ AS
     -- SML2010
     SELECT
         'SML2010',
-        TO_TIMESTAMP(epoch_time),
+        DATEADD('SECOND', epoch_time, '1970-01-01 00:00:00'::TIMESTAMP_NTZ),
         co2_comedor AS co2_ppm,
         NULL,
         NULL,

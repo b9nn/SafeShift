@@ -159,31 +159,5 @@
         "url": "https://www.ilo.org/topics/labour-administration-and-inspection/resources-library/occupational-safety-and-health-guide-labour-inspectors-and-other/vibration"
       }
     ]
-  },
-
-  "shift_length": {
-    "unit": "hours",
-    "standard_daily_max": 8,
-    "extended_daily_max": 10,
-    "weekly_max": 48,
-    "shift_work_weekly_max": 56,
-    "minimum_daily_rest": 11,
-    "minimum_weekly_rest": 24,
-    "sources": [
-      {
-        "name": "ILO Convention No. 1 — Hours of Work (Industry), 1919",
-        "url": "https://normlex.ilo.org/dyn/nrmlx_en/f?p=NORMLEXPUB:12100:0::NO::P12100_ILO_CODE:C001",
-        "detail": "8 hours/day, 48 hours/week. Shift work may average over 3 weeks with 56-hr weekly max."
-      },
-      {
-        "name": "ILO Q&As on Business and Working Time",
-        "url": "https://www.ilo.org/resource/qas-business-and-working-time-0",
-        "detail": "Convention No. 30 allows up to 10 hours/day if weekly total ≤48 hours."
-      },
-      {
-        "name": "ETI Base Code Clause 6 — Working Hours",
-        "url": "https://www.ethicaltrade.org/eti-base-code/6-working-hours-are-not-excessive"
-      }
-    ]
   }
 }

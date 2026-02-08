@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "server": "node server/index.js",
     "bridge": "node scripts/serial-bridge.js",
+    "test:e2e": "node scripts/test-e2e.js",
     "dev:all": "concurrently \"npm run dev\" \"npm run server\"",
     "test": "echo \"Error: no test specified\" && exit 1",
     "verify-wallet": "node scripts/verify-wallet.js",
