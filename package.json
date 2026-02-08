@@ -18,7 +18,8 @@
     "verify-wallet": "node scripts/verify-wallet.js",
     "check-networks": "node scripts/check-wallet-networks.js",
     "solana-examples": "node scripts/example-solana-usage.js",
-    "export-key": "node scripts/export-private-key.js"
+    "export-key": "node scripts/export-private-key.js",
+    "test-snowflake": "node scripts/test-snowflake.js"
   },
   "repository": {
     "type": "git",
