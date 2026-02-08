@@ -44,26 +44,18 @@
   /* Default: centered */
   top: 50%;
   left: 50%;
-  transform: translate(-50%, -80%);
+  transform: translate(-50%, -80%) scale(1);
   font-size: clamp(3.5rem, 8vw, 6rem);
 
   transition: top 0.8s cubic-bezier(0.4, 0, 0.2, 1),
               left 0.8s cubic-bezier(0.4, 0, 0.2, 1),
-              transform 0.8s cubic-bezier(0.4, 0, 0.2, 1),
-              font-size 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+              transform 0.8s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .splash-title.title-corner {
-  top: 1.5rem;
-  left: auto;
-  right: 2rem;
-  transform: translate(0, 0);
-  font-size: 1.75rem;
-  /* We use right instead of left, so we need to unset left */
-}
-/* Override left when in corner (CSS can't transition left->right, so we use a trick) */
-.splash-title.title-corner {
-  left: unset;
+  top: 0.8rem;
+  left: calc(100vw - 7rem);
+  transform: translate(-50%, 0) scale(0.3);
 }
 
 /* ==========================================================================
