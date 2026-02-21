@@ -4,6 +4,12 @@
 
 A hackathon project that monitors factory working conditions and automatically rewards safe operations using Solana blockchain.
 
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=taGqXjDqMPM">
+    <img src="https://img.youtube.com/vi/taGqXjDqMPM/0.jpg" width="600">
+  </a>
+</p>
+
 ## Quick Start
 
 ### Prerequisites
